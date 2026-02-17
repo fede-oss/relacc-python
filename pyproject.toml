@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "relacc-python"
+version = "1.1.0"
+description = "Relative Accuracy Measures for Stroke Gestures (Python port)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+  { name = "Luis A. Leiva" }
+]
+dependencies = [
+  "matplotlib>=3.8"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.4",
+  "pytest-cov>=4.1"
+]
+
+[tool.setuptools]
+packages = ["relacc", "relacc.geom", "relacc.gestures", "relacc.utils"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.coverage.run]
+source = ["relacc"]
+branch = false
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 100
