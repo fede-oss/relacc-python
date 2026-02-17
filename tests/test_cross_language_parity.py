@@ -11,6 +11,7 @@ from relacc.gestures.ptaligntype import PtAlignType
 
 
 ROOT = Path(__file__).resolve().parents[1]
+JS_LIB = ROOT / "lib" / "relacc.js"
 
 
 def p(x, y, t, sid):
@@ -56,6 +57,8 @@ def _python_metrics():
 
 
 def _js_metrics():
+    if not JS_LIB.exists():
+        pytest.skip("JS reference implementation is not present in Python-only repository.")
     script = r'''
 const RelAcc = require('./lib/relacc');
 const Point = require('./lib/geom/point');
