@@ -4,7 +4,6 @@ import json
 import math
 import os
 import statistics
-import sys
 from typing import Dict, List
 
 from relacc import relacc as RelAcc

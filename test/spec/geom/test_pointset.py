@@ -1,7 +1,7 @@
 from relacc.geom.point import Point
 from relacc.geom.pointset import PointSet
 
-from tests.helpers.math import round_to
+from test.helpers.math import round_to
 
 
 def _make_set():

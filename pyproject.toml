@@ -26,7 +26,7 @@ dev = [
 packages = ["relacc", "relacc.geom", "relacc.gestures", "relacc.utils"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["test"]
 python_files = ["test_*.py"]
 
 [tool.coverage.run]

@@ -1,7 +1,7 @@
 from relacc.geom.point import Point
 from relacc.geom.vector import Vector
 
-from tests.helpers.math import round_to
+from test.helpers.math import round_to
 
 
 pt1 = Point(1, 2, 100, 0)
