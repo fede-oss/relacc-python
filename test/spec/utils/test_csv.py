@@ -1,4 +1,7 @@
+import gzip
 from pathlib import Path
+
+import pytest
 
 from relacc.utils.csv import CSVUtil
 
@@ -27,3 +30,107 @@ def test_csv_parse_dedupe_and_nan(tmp_path):
     assert points[1].X == 12
     assert points[1].T != points[1].T
     assert points[1].StrokeID == 1
+
+
+def test_csv_parse_tab_delimited_float_values(tmp_path):
+    tmp_file = Path(tmp_path) / "gesture-tab.csv"
+    rows = [
+        "stroke_id\t x\t y\t time\t is_writing",
+        "1.000000 \t 281.000000 \t -179.000000 \t 0.000000 \t 1.000000",
+        "1.000000 \t 280.999996 \t -178.999992 \t 0.000000 \t 1.000000",
+        "2.000000 \t 280.500000 \t -178.500000 \t 14.000000 \t 1.000000",
+    ]
+    tmp_file.write_text("\n".join(rows), encoding="utf-8")
+
+    out = {}
+
+    def cb(points):
+        out["points"] = points
+
+    CSVUtil.readGesture(str(tmp_file), cb)
+    points = out["points"]
+
+    assert len(points) == 2
+    assert points[0].X == 281.0
+    assert points[0].Y == -179.0
+    assert points[0].T == 0.0
+    assert points[0].StrokeID == 1
+    assert points[1].X == 280.5
+    assert points[1].T == 14.0
+    assert points[1].StrokeID == 2
+
+
+def test_csv_parse_gzip_text(tmp_path):
+    tmp_file = Path(tmp_path) / "gesture.csv"
+    gz_file = Path(tmp_path) / "gesture.csv.gz"
+    rows = [
+        "stroke_id x y time is_writing",
+        "0 10 20 0 1",
+        "0 11 21 10 1",
+    ]
+    tmp_file.write_text("\n".join(rows), encoding="utf-8")
+    gz_file.write_bytes(gzip.compress(tmp_file.read_bytes()))
+
+    out = {}
+
+    def cb(points):
+        out["points"] = points
+
+    CSVUtil.readGesture(str(gz_file), cb)
+    points = out["points"]
+
+    assert len(points) == 2
+    assert points[0].X == 10.0
+    assert points[1].T == 10.0
+
+
+def test_csv_empty_file_returns_empty_points(tmp_path):
+    tmp_file = Path(tmp_path) / "empty.csv"
+    tmp_file.write_text("", encoding="utf-8")
+
+    out = {}
+
+    def cb(points):
+        out["points"] = points
+
+    CSVUtil.readGesture(str(tmp_file), cb)
+    assert out["points"] == []
+
+
+def test_csv_invalid_header_raises(tmp_path):
+    tmp_file = Path(tmp_path) / "bad-header.csv"
+    tmp_file.write_text("a b c d\n1 2 3 4\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Invalid CSV header"):
+        CSVUtil.readGesture(str(tmp_file), lambda _points: None)
+
+
+def test_csv_comma_delimited_and_sparse_rows(tmp_path):
+    tmp_file = Path(tmp_path) / "comma.csv"
+    rows = [
+        "stroke_id,x,y,time,is_writing",
+        "",
+        "0,10,20,0,1",
+        "1,12,22",
+        "1,13,23,10,1",
+    ]
+    tmp_file.write_text("\n".join(rows), encoding="utf-8")
+
+    out = {}
+
+    def cb(points):
+        out["points"] = points
+
+    CSVUtil.readGesture(str(tmp_file), cb)
+    points = out["points"]
+    assert len(points) == 2
+    assert points[0].X == 10.0
+    assert points[1].X == 13.0
+
+
+def test_csv_empty_numeric_field_raises(tmp_path):
+    tmp_file = Path(tmp_path) / "empty-numeric.csv"
+    tmp_file.write_text("stroke_id,x,y,time,is_writing\n0,10,20,,1\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Empty numeric field"):
+        CSVUtil.readGesture(str(tmp_file), lambda _points: None)
