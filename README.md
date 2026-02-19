@@ -15,17 +15,54 @@ python3 -m pip install -e .
 
 ## Usage
 
-1. Generate metric reports:
+1. Generate metric reports (`main.py`):
 
 ```bash
 python3 main.py -s -r 32 -a 1 -m centroid -f json /path/to/*gesture_name*.csv
 ```
 
-2. Render gesture visualizations:
+2. Render gesture visualizations (`main-canvas.py`):
 
 ```bash
 python3 main-canvas.py -r 32 -a 1 -m centroid -o /tmp/sample.png /path/to/*gesture_name*.csv
 ```
+
+3. Show CLI help:
+
+```bash
+python3 main.py -h
+python3 main-canvas.py -h
+```
+
+## Common Flags
+
+### `main.py` (metrics)
+
+- `-l, --label`: gesture label (if omitted, inferred from first filename)
+- `-r, --rate`: sampling rate
+- `-a, --alignment`: point alignment mode
+- `-m, --summary`: summary shape strategy
+- `-p, --popular`: use popular summary shape
+- `-s, --stats`: output aggregate stats instead of per-file rows
+- `-f, --format`: output format (`json`, `csv`, `xml`)
+- `-o, --output`: write output to file
+- `-v, --verbose`: verbose logs
+
+### `main-canvas.py` (rendering)
+
+- `-l, --label`: gesture label (if omitted, inferred from first filename)
+- `-r, --rate`: sampling rate
+- `-a, --alignment`: point alignment mode
+- `-m, --summary`: summary shape strategy
+- `-p, --popular`: use popular summary shape
+- `-s, --size`: image canvas size in pixels
+- `-t, --thickness`: gesture line thickness
+- `-c, --color`: gesture color
+- `-T, --summary-thickness`: summary line thickness
+- `-C, --summary-color`: summary color
+- `-f, --format`: output image format (`png`, `jpg`, `jpeg`, `pdf`, `svg`)
+- `-o, --output`: write image to file (format inferred from extension if present)
+- `-v, --verbose`: verbose logs
 
 ## Run tests
 
