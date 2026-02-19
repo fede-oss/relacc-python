@@ -192,3 +192,25 @@ def stdev(arr):
         item = arr[i]
         sd += (item - avg) * (item - avg)
     return math.sqrt(sd / (len(arr) - 1))
+
+
+# Pythonic aliases for public API ergonomics while preserving original names.
+shape_error = shapeError
+shape_variability = shapeVariability
+local_shape_errors = localShapeErrors
+length_error = lengthError
+size_error = sizeError
+bending_error = bendingError
+bending_variability = bendingVariability
+local_bending_errors = localBendingErrors
+turning_angle_array = turningAngleArray
+time_error = timeError
+time_variability = timeVariability
+velocity_error = velocityError
+velocity_variability = velocityVariability
+local_speed_errors = localSpeedErrors
+production_time = productionTime
+speed_array = speedArray
+stroke_error = strokeError
+num_strokes = numStrokes
+stroke_order_error = strokeOrderError

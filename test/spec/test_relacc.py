@@ -98,3 +98,11 @@ def test_mean_stdev_edge_cases():
 
     assert RelAcc.stdev([4]) == 0
     assert math.isclose(RelAcc.stdev([0, 2, 4]), 2, abs_tol=1e-10)
+
+
+def test_snake_case_aliases_match_original_api():
+    _, _, _, gesture, summaryShape = _fixture_shapes()
+    assert RelAcc.shape_error(gesture, summaryShape) == RelAcc.shapeError(gesture, summaryShape)
+    assert RelAcc.length_error(gesture, summaryShape) == RelAcc.lengthError(gesture, summaryShape)
+    assert RelAcc.stroke_order_error(gesture, summaryShape) == RelAcc.strokeOrderError(gesture, summaryShape)
+    assert RelAcc.num_strokes(gesture) == RelAcc.numStrokes(gesture)

@@ -16,6 +16,10 @@ dependencies = [
   "matplotlib>=3.8"
 ]
 
+[project.scripts]
+relacc = "relacc_cli:main"
+relacc-canvas = "relacc_canvas_cli:main"
+
 [project.optional-dependencies]
 dev = [
   "pytest>=7.4",
@@ -24,6 +28,7 @@ dev = [
 
 [tool.setuptools]
 packages = ["relacc", "relacc.geom", "relacc.gestures", "relacc.utils"]
+py-modules = ["relacc_cli", "relacc_canvas_cli"]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]

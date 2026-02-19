@@ -23,6 +23,7 @@ def computeSummaryShapes(self, gestures, popularStrokeNum):
     yPoints = []
 
     collectionLen = len(gestures)
+    includedCount = 0
     for _ in range(self.refGesture.samplingRate):
         centroid.append(Point())
         medoid.append(Point())
@@ -32,6 +33,7 @@ def computeSummaryShapes(self, gestures, popularStrokeNum):
         numStrk = PointSet.countStrokes(gesture.points)
         if popularStrokeNum > 0 and numStrk > popularStrokeNum:
             continue
+        includedCount += 1
         points = self.alignGesture(gesture, self.alignmentType)
         for i in range(self.refGesture.samplingRate):
             pt = points[i]
@@ -42,9 +44,12 @@ def computeSummaryShapes(self, gestures, popularStrokeNum):
             xPoints[i].append(pt.X)
             yPoints[i].append(pt.Y)
 
-    pivot = int(len(gestures) / 2)
+    if includedCount == 0:
+        raise ValueError("No gestures available to compute summary shapes.")
+
+    pivot = int(includedCount / 2)
     for i in range(self.refGesture.samplingRate):
-        centroid[i] = centroid[i].divideBy(collectionLen)
+        centroid[i] = centroid[i].divideBy(includedCount)
         xPoints[i].sort()
         yPoints[i].sort()
         xval = xPoints[i][pivot] if pivot < len(xPoints[i]) else None
@@ -91,7 +96,7 @@ class SummaryGesture(Gesture):
             idx = -1
             minimum = float("inf")
             for g in range(collectionLen):
-                points = self.alignGesture(gestures[g], alignmentType)
+                points = self.alignGesture(gestures[g], self.alignmentType)
                 distance = 0
                 for i in range(refg.samplingRate):
                     distance += Measure.sqDistance(referenceGesture[i], points[i])

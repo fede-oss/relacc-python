@@ -32,6 +32,7 @@ def test_main_canvas_stdout_img_mode(tmp_path):
     )
 
     assert "<img src=\"data:image/png;base64," in res.stdout
+    assert "'summaryThickness'" not in res.stderr
 
 
 def test_main_canvas_all_file_formats(tmp_path):

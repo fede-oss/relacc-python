@@ -15,19 +15,26 @@ python3 -m pip install -e .
 
 ## Usage
 
-1. Generate metric reports (`main.py`):
+1. Generate metric reports (`relacc`):
 
 ```bash
-python3 main.py -s -r 32 -a 1 -m centroid -f json /path/to/*gesture_name*.csv
+relacc -s -r 32 -a 1 -m centroid -f json /path/to/*gesture_name*.csv
 ```
 
-2. Render gesture visualizations (`main-canvas.py`):
+2. Render gesture visualizations (`relacc-canvas`):
 
 ```bash
-python3 main-canvas.py -r 32 -a 1 -m centroid -o /tmp/sample.png /path/to/*gesture_name*.csv
+relacc-canvas -r 32 -a 1 -m centroid -o /tmp/sample.png /path/to/*gesture_name*.csv
 ```
 
 3. Show CLI help:
+
+```bash
+relacc -h
+relacc-canvas -h
+```
+
+Legacy script entry points are still available:
 
 ```bash
 python3 main.py -h
@@ -87,3 +94,7 @@ Where:
 
 Expected filename pattern:
 `subject_name-gesture_name-trial_number.csv`
+
+## License
+
+This software is distributed under the MIT License.
