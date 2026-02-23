@@ -13,6 +13,12 @@ This repository contains a Python port of the Gesture Relative Accuracy Toolkit 
 python3 -m pip install -e .
 ```
 
+If your system Python is marked as "externally managed" (common on newer Debian/Ubuntu-based setups), use:
+
+```bash
+python3 -m pip install --break-system-packages -e .
+```
+
 ## Usage
 
 1. Generate metric reports (`relacc`):
