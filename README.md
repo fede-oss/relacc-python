@@ -38,6 +38,13 @@ relacc-canvas -r 32 -a 1 -m centroid -o /tmp/sample.png /path/to/*gesture_name*.
 ```bash
 relacc -h
 relacc-canvas -h
+relacc-pairwise -h
+```
+
+4. Compare reference and candidate gestures pairwise (`relacc-pairwise`):
+
+```bash
+relacc-pairwise /path/to/humans /path/to/synthetics -f csv -o /tmp/pairs.csv
 ```
 
 Legacy script entry points are still available:
@@ -45,6 +52,7 @@ Legacy script entry points are still available:
 ```bash
 python3 main.py -h
 python3 main-canvas.py -h
+python3 main-pairwise.py -h
 ```
 
 ## Common Flags
@@ -75,6 +83,21 @@ python3 main-canvas.py -h
 - `-C, --summary-color`: summary color
 - `-f, --format`: output image format (`png`, `jpg`, `jpeg`, `pdf`, `svg`)
 - `-o, --output`: write image to file (format inferred from extension if present)
+- `-v, --verbose`: verbose logs
+
+### `main-pairwise.py` (pairwise comparison)
+
+- positional `reference`: reference file or directory (CSV)
+- positional `candidate`: candidate file or directory (CSV)
+- `-l, --label`: force one label for all pairs
+- `-r, --rate`: sampling rate (if omitted, auto-estimated per pair)
+- `-a, --alignment`: point alignment mode
+- `-m, --summary`: summary shape strategy
+- `-p, --popular`: use popular summary shape
+- `--strict / --no-strict`: fail or skip unmatched directory files
+- `-f, --format`: output format (`json`, `csv`)
+- `-o, --output`: write output to file
+- `--round`: decimal precision for metric values
 - `-v, --verbose`: verbose logs
 
 ## Run tests

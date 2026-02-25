@@ -19,6 +19,7 @@ dependencies = [
 [project.scripts]
 relacc = "relacc_cli:main"
 relacc-canvas = "relacc_canvas_cli:main"
+relacc-pairwise = "relacc_pairwise_cli:main"
 
 [project.optional-dependencies]
 dev = [
@@ -27,8 +28,8 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["relacc", "relacc.geom", "relacc.gestures", "relacc.utils"]
-py-modules = ["relacc_cli", "relacc_canvas_cli"]
+packages = ["relacc", "relacc.geom", "relacc.gestures", "relacc.utils", "relacc.pipeline"]
+py-modules = ["relacc_cli", "relacc_canvas_cli", "relacc_pairwise_cli"]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
