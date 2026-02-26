@@ -63,6 +63,33 @@ def test_main_pairwise_json_stdout_single_pair(tmp_path):
     assert "shapeError" in payload["pairs"][0]
 
 
+def test_main_pairwise_alignment_zero_is_accepted(tmp_path):
+    ref = tmp_path / "ref.csv"
+    cand = tmp_path / "cand.csv"
+    _write_csv(ref, _sample_rows(0))
+    _write_csv(cand, _sample_rows(1))
+
+    res = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "main-pairwise.py"),
+            "-f",
+            "json",
+            "-a",
+            "0",
+            str(ref),
+            str(cand),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(res.stdout)
+    assert payload["metadata"]["alignment"] == 0
+
+
 def test_main_pairwise_csv_file_output_and_no_strict(tmp_path):
     reference_dir = tmp_path / "reference"
     candidate_dir = tmp_path / "candidate"
@@ -117,3 +144,28 @@ def test_main_pairwise_invalid_format_fails(tmp_path):
 
     assert res.returncode != 0
     assert "Invalid output format" in res.stderr
+
+
+def test_main_pairwise_invalid_rate_fails(tmp_path):
+    ref = tmp_path / "ref.csv"
+    cand = tmp_path / "cand.csv"
+    _write_csv(ref, _sample_rows(0))
+    _write_csv(cand, _sample_rows(1))
+
+    res = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "main-pairwise.py"),
+            "-r",
+            "0",
+            str(ref),
+            str(cand),
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert res.returncode != 0
+    assert "Sampling rate must be >= 1" in res.stderr

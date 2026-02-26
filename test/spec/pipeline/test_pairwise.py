@@ -114,6 +114,9 @@ def test_read_points_and_sampling_rate(tmp_path):
     explicit_rate = Pairwise._sampling_rate(points, points, 9)
     assert explicit_rate == 9
 
+    with pytest.raises(ValueError, match="Sampling rate must be >= 1"):
+        Pairwise._sampling_rate(points, points, 0)
+
     smart_rate = Pairwise._sampling_rate(points, points, None)
     assert smart_rate == 24
 

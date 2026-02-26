@@ -70,8 +70,10 @@ def main(argv=None):
         raise ValueError("Invalid output format (%s). Supported formats: json, csv." % fmt)
 
     rate = _int_cast(opt.rate)
-    alignment = _int_cast(opt.alignment) or PtAlignType.CHRONOLOGICAL
-    round_precision = _int_cast(opt.round) if opt.round is not None else 3
+    parsed_alignment = _int_cast(opt.alignment)
+    alignment = PtAlignType.CHRONOLOGICAL if parsed_alignment is None else parsed_alignment
+    parsed_round = _int_cast(opt.round)
+    round_precision = 3 if parsed_round is None else parsed_round
 
     payload = run_pairwise_comparison(
         opt.reference,

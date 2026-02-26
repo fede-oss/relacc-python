@@ -113,8 +113,11 @@ def _read_points(csv_file: str):
 
 
 def _sampling_rate(reference_points, candidate_points, rate):
-    if rate not in (None, ""):
-        return int(rate)
+    if rate is not None:
+        parsed_rate = int(rate)
+        if parsed_rate < 1:
+            raise ValueError("Sampling rate must be >= 1.")
+        return parsed_rate
 
     max_strokes = max(
         PointSet.countStrokes(reference_points),
