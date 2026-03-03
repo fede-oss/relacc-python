@@ -163,13 +163,58 @@ def test_compute_compare_and_run_pairwise(tmp_path):
         strict=False,
         round_precision=2,
     )
+    assert payload["metadata"]["comparisonMode"] == "direct"
     assert payload["metadata"]["pairCount"] == 1
+    assert payload["metadata"]["referenceCount"] == 1
     assert payload["metadata"]["missingInCandidate"] == ["s2.csv"]
     assert payload["metadata"]["missingInReference"] == ["extra.csv"]
     assert payload["metadata"]["rate"] == 7
     assert payload["metadata"]["label"] == "gesture"
     assert payload["metadata"]["roundPrecision"] == 2
     assert payload["pairs"][0]["label"] == "gesture"
+    assert payload["pairs"][0]["mode"] == "direct"
+    assert payload["pairs"][0]["referenceCount"] == 1
+
+
+def test_run_pairwise_summary_mode_compares_all_candidates(tmp_path):
+    reference_dir = tmp_path / "reference"
+    candidate_dir = tmp_path / "candidate"
+
+    _write_csv(reference_dir / "ref_a.csv", _sample_rows(0))
+    _write_csv(reference_dir / "nested" / "ref_b.csv", _sample_rows(2))
+
+    _write_csv(candidate_dir / "cand_1.csv", _sample_rows(1))
+    _write_csv(candidate_dir / "nested" / "cand_2.csv", _sample_rows(3))
+
+    payload = Pairwise.run_pairwise_comparison(
+        str(reference_dir),
+        str(candidate_dir),
+        summary_shape="centroid",
+        popular_shape=True,
+        strict=True,
+        comparison_mode="summary",
+    )
+
+    assert payload["metadata"]["comparisonMode"] == "summary"
+    assert payload["metadata"]["pairCount"] == 2
+    assert payload["metadata"]["referenceCount"] == 2
+    assert payload["metadata"]["missingInCandidate"] == []
+    assert payload["metadata"]["missingInReference"] == []
+    assert all(row["mode"] == "summary" for row in payload["pairs"])
+    assert all(row["referenceCount"] == 2 for row in payload["pairs"])
+
+
+def test_run_pairwise_invalid_mode_and_summary_validation(tmp_path):
+    ref = tmp_path / "ref.csv"
+    cand = tmp_path / "cand.csv"
+    _write_csv(ref, _sample_rows())
+    _write_csv(cand, _sample_rows(1))
+
+    with pytest.raises(ValueError, match="Invalid comparison mode"):
+        Pairwise.run_pairwise_comparison(str(ref), str(cand), comparison_mode="broken")
+
+    with pytest.raises(ValueError, match="Invalid summary shape"):
+        Pairwise.run_pairwise_comparison(str(ref), str(cand), summary_shape="average")
 
 
 def test_format_pair_rows_csv_with_escaping_and_missing_values():
@@ -178,6 +223,8 @@ def test_format_pair_rows_csv_with_escaping_and_missing_values():
         "label": "label,with,comma",
         "referenceFile": 'ref"x.csv',
         "candidateFile": "cand.csv",
+        "mode": "direct",
+        "referenceCount": 1,
         "rate": 24,
         "alignment": 1,
         "summary": None,
