@@ -4,7 +4,12 @@ import json
 import os
 
 from relacc.gestures.ptaligntype import PtAlignType
-from relacc.pipeline.pairwise import format_pair_rows_csv, run_pairwise_comparison
+from relacc.pipeline.pairwise import (
+    COMPARISON_MODES,
+    DIRECT_MODE,
+    format_pair_rows_csv,
+    run_pairwise_comparison,
+)
 from relacc.utils.debug import Debug
 
 
@@ -21,6 +26,7 @@ def build_parser():
     parser.add_argument("-l", "--label")
     parser.add_argument("-r", "--rate")
     parser.add_argument("-a", "--alignment")
+    parser.add_argument("--mode", default=DIRECT_MODE, choices=COMPARISON_MODES)
     parser.add_argument("-m", "--summary")
     parser.add_argument("-p", "--popular", action="store_true")
     parser.add_argument("--strict", dest="strict", action="store_true")
@@ -85,6 +91,7 @@ def main(argv=None):
         popular_shape=opt.popular,
         strict=opt.strict,
         round_precision=round_precision,
+        comparison_mode=opt.mode,
     )
 
     if fmt == "json":
