@@ -159,15 +159,31 @@ relacc-canvas -m centroid \
 - `relacc-pairwise` — pairwise one-vs-one comparison between a reference file/directory and a candidate file/directory. See `relacc-pairwise -h`.
 - Legacy entry points: `python3 main.py`, `python3 main-canvas.py`, `python3 main-pairwise.py`.
 
-## Add a new metric (to be shared project-wide)
+## Add a new metric
 
-Metrics are centralized in `relacc/metrics.py`.
+There are now two metric families:
 
-To add one:
+- Gesture metrics (`relacc/metrics.py`): used by both `relacc` and `relacc-pairwise`.
+- Distribution metrics (`relacc/distribution_metrics.py`): distribution metrics scaffold
 
-1. Implement the metric function in `relacc/relacc.py` (signature compatible with `(gesture, summaryShape) -> float`).
+### 1) Add a gesture metric (shared by `relacc` and `relacc-pairwise`)
+
+1. Implement the metric function in `relacc/relacc.py` (signature: `(gesture, summaryShape) -> float`).
 2. Register it in `relacc/metrics.py` by appending an entry to `_METRIC_DEFINITIONS`, for example:
    `("myMetric", RelAcc.myMetric)`.
+
+After step 2, it is automatically included in:
+- `relacc` per-file output and `-s` stats output
+- `relacc-pairwise` JSON/CSV output
+
+### 2) Add a distribution metric (for distribution comparison workflows)
+
+1. Implement a function in `relacc/distribution_metrics.py` with signature:
+   `(reference_values, candidate_values) -> float`.
+2. Register it in `_DISTRIBUTION_METRIC_DEFINITIONS`, for example:
+   `("myDistributionMetric", my_distribution_metric)`.
+
+This keeps distribution logic modular and independent from pairwise evaluation.
 
 
 
