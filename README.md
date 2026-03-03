@@ -154,9 +154,47 @@ relacc-canvas -m centroid \
 
 ---
 
+### `relacc-pairwise` — direct and summary-reference comparison
+
+`relacc-pairwise` supports 2 modes:
+
+- `--mode direct` (default): strict reference-vs-candidate pairing.
+  - file vs file: one pair
+  - directory vs directory: matched by relative CSV path (`nested/a.csv` ↔ `nested/a.csv`)
+  - `--strict/--no-strict` controls whether unmatched files fail or are skipped
+- `--mode summary`: candidate-vs-summary-reference.
+  - all CSVs in `reference` are used to build one summary gesture
+  - every candidate CSV in `candidate` is compared against that summary
+  - this transfers the `relacc` summary-gesture logic to cross-dataset evaluation
+
+Examples:
+
+```bash
+# Strict one-to-one pairwise (default mode)
+relacc-pairwise references/ candidates/ -f csv -o /tmp/direct.csv
+
+# Candidate-vs-summary-reference (multiple references -> one summary)
+relacc-pairwise --mode summary -m centroid references/ generated/ -f json
+```
+
+Key flags:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--mode` | `direct` | Comparison mode: `direct` or `summary` |
+| `-m, --summary` | *(first reference gesture)* | Summary strategy: `centroid`, `medoid`, `kcentroid`, `kmedoid` |
+| `-p, --popular` | off | Filter to most common stroke count when building summary |
+| `--strict / --no-strict` | strict | Only used by `direct` mode for directory matching |
+| `-r, --rate` | auto | Resampling rate (auto-estimated when omitted) |
+| `-a, --alignment` | `0` | Point alignment: `0` chronological, `1` cloud-match |
+| `--round` | `3` | Decimal precision in output metrics |
+| `-f, --format` | `json` | Output format: `json`, `csv` |
+| `-o, --output` | *(stdout)* | Write output to file |
+
+---
+
 ### Other commands
 
-- `relacc-pairwise` — pairwise one-vs-one comparison between a reference file/directory and a candidate file/directory. See `relacc-pairwise -h`.
 - Legacy entry points: `python3 main.py`, `python3 main-canvas.py`, `python3 main-pairwise.py`.
 
 ## Add a new metric
