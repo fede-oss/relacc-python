@@ -159,6 +159,18 @@ relacc-canvas -m centroid \
 - `relacc-pairwise` — pairwise one-vs-one comparison between a reference file/directory and a candidate file/directory. See `relacc-pairwise -h`.
 - Legacy entry points: `python3 main.py`, `python3 main-canvas.py`, `python3 main-pairwise.py`.
 
+## Add a new metric (to be shared project-wide)
+
+Metrics are centralized in `relacc/metrics.py`.
+
+To add one:
+
+1. Implement the metric function in `relacc/relacc.py` (signature compatible with `(gesture, summaryShape) -> float`).
+2. Register it in `relacc/metrics.py` by appending an entry to `_METRIC_DEFINITIONS`, for example:
+   `("myMetric", RelAcc.myMetric)`.
+
+
+
 ## Run tests
 
 ```bash
