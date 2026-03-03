@@ -6,11 +6,11 @@ import os
 import statistics
 from typing import Dict, List
 
-from relacc import relacc as RelAcc
 from relacc.geom.pointset import PointSet
 from relacc.gestures.gesture import Gesture
 from relacc.gestures.ptaligntype import PtAlignType
 from relacc.gestures.summarygesture import SummaryGesture
+from relacc.metrics import METRIC_NAMES, compute_metrics
 from relacc.utils.args import Args
 from relacc.utils.csv import CSVUtil
 from relacc.utils.date import DateUtil
@@ -128,62 +128,14 @@ def evaluate(collection, label, rate, argParser, defaults, output, fmt, debug):
         gestures.append(Gesture(points, label, rate))
 
     taskAxis = SummaryGesture(gestures, alignmentType, summaryShape, popularShape)
-
-    shapeError = []
-    shapeVariability = []
-    lengthError = []
-    sizeError = []
-    bendingError = []
-    bendingVariability = []
-    timeError = []
-    timeVariability = []
-    velocityError = []
-    velocityVariability = []
-    strokeError = []
-    strokeOrderError = []
-
+    metric_values = {name: [] for name in METRIC_NAMES}
     for gesture in gestures:
-        shE = RelAcc.shapeError(gesture, taskAxis)
-        shV = RelAcc.shapeVariability(gesture, taskAxis)
-        LE = RelAcc.lengthError(gesture, taskAxis)
-        szE = RelAcc.sizeError(gesture, taskAxis)
-        BE = RelAcc.bendingError(gesture, taskAxis)
-        BV = RelAcc.bendingVariability(gesture, taskAxis)
-        TE = RelAcc.timeError(gesture, taskAxis)
-        TV = RelAcc.timeVariability(gesture, taskAxis)
-        VE = RelAcc.velocityError(gesture, taskAxis)
-        VV = RelAcc.velocityVariability(gesture, taskAxis)
-        skE = RelAcc.strokeError(gesture, taskAxis)
-        sOE = RelAcc.strokeOrderError(gesture, taskAxis)
-
-        shapeError.append(shE)
-        shapeVariability.append(shV)
-        lengthError.append(LE)
-        sizeError.append(szE)
-        bendingError.append(BE)
-        bendingVariability.append(BV)
-        timeError.append(TE)
-        timeVariability.append(TV)
-        velocityError.append(VE)
-        velocityVariability.append(VV)
-        strokeError.append(skE)
-        strokeOrderError.append(sOE)
+        values = compute_metrics(gesture, taskAxis)
+        for name, value in values.items():
+            metric_values[name].append(value)
 
     if displayStats:
-        stats = {
-            "shapeError": getStats(shapeError),
-            "shapeVariability": getStats(shapeVariability),
-            "lengthError": getStats(lengthError),
-            "sizeError": getStats(sizeError),
-            "bendingError": getStats(bendingError),
-            "bendingVariability": getStats(bendingVariability),
-            "timeError": getStats(timeError),
-            "timeVariability": getStats(timeVariability),
-            "velocityError": getStats(velocityError),
-            "velocityVariability": getStats(velocityVariability),
-            "strokeError": getStats(strokeError),
-            "strokeOrderError": getStats(strokeOrderError),
-        }
+        stats = {name: getStats(metric_values[name]) for name in METRIC_NAMES}
         if fmt == "json":
             res = toJSON(stats, defaults)
         elif fmt == "csv":
@@ -196,37 +148,10 @@ def evaluate(collection, label, rate, argParser, defaults, output, fmt, debug):
             )
         displayResults(res, output, debug)
     else:
-        print(
-            "file",
-            "shapeError",
-            "shapeVariability",
-            "lengthError",
-            "sizeError",
-            "bendingError",
-            "bendingVariability",
-            "timeError",
-            "timeVariability",
-            "velocityError",
-            "velocityVariability",
-            "strokeError",
-            "strokeOrderError",
-        )
+        print("file", *METRIC_NAMES)
         for i in range(len(files)):
-            print(
-                files[i],
-                MathUtil.roundTo(shapeError[i]),
-                MathUtil.roundTo(shapeVariability[i]),
-                MathUtil.roundTo(lengthError[i]),
-                MathUtil.roundTo(sizeError[i]),
-                MathUtil.roundTo(bendingError[i]),
-                MathUtil.roundTo(bendingVariability[i]),
-                MathUtil.roundTo(timeError[i]),
-                MathUtil.roundTo(timeVariability[i]),
-                MathUtil.roundTo(velocityError[i]),
-                MathUtil.roundTo(velocityVariability[i]),
-                MathUtil.roundTo(strokeError[i]),
-                MathUtil.roundTo(strokeOrderError[i]),
-            )
+            rounded_values = [MathUtil.roundTo(metric_values[name][i]) for name in METRIC_NAMES]
+            print(files[i], *rounded_values)
 
 
 def build_parser():

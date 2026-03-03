@@ -2,31 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Sequence
 
-from relacc import relacc as RelAcc
 from relacc.geom.pointset import PointSet
 from relacc.gestures.gesture import Gesture
 from relacc.gestures.ptaligntype import PtAlignType
 from relacc.gestures.summarygesture import SummaryGesture
+from relacc.metrics import METRIC_NAMES, compute_metrics
 from relacc.utils.csv import CSVUtil
 from relacc.utils.math import MathUtil
-
-
-METRIC_NAMES: Tuple[str, ...] = (
-    "shapeError",
-    "shapeVariability",
-    "lengthError",
-    "sizeError",
-    "bendingError",
-    "bendingVariability",
-    "timeError",
-    "timeVariability",
-    "velocityError",
-    "velocityVariability",
-    "strokeError",
-    "strokeOrderError",
-)
 
 
 @dataclass(frozen=True)
@@ -126,33 +110,6 @@ def _sampling_rate(reference_points, candidate_points, rate):
     return max(24, MathUtil.factorial(max_strokes))
 
 
-def _compute_metrics(candidate: Gesture, summary: SummaryGesture, round_precision: int):
-    return {
-        "shapeError": MathUtil.roundTo(RelAcc.shapeError(candidate, summary), round_precision),
-        "shapeVariability": MathUtil.roundTo(
-            RelAcc.shapeVariability(candidate, summary), round_precision
-        ),
-        "lengthError": MathUtil.roundTo(RelAcc.lengthError(candidate, summary), round_precision),
-        "sizeError": MathUtil.roundTo(RelAcc.sizeError(candidate, summary), round_precision),
-        "bendingError": MathUtil.roundTo(RelAcc.bendingError(candidate, summary), round_precision),
-        "bendingVariability": MathUtil.roundTo(
-            RelAcc.bendingVariability(candidate, summary), round_precision
-        ),
-        "timeError": MathUtil.roundTo(RelAcc.timeError(candidate, summary), round_precision),
-        "timeVariability": MathUtil.roundTo(
-            RelAcc.timeVariability(candidate, summary), round_precision
-        ),
-        "velocityError": MathUtil.roundTo(RelAcc.velocityError(candidate, summary), round_precision),
-        "velocityVariability": MathUtil.roundTo(
-            RelAcc.velocityVariability(candidate, summary), round_precision
-        ),
-        "strokeError": MathUtil.roundTo(RelAcc.strokeError(candidate, summary), round_precision),
-        "strokeOrderError": MathUtil.roundTo(
-            RelAcc.strokeOrderError(candidate, summary), round_precision
-        ),
-    }
-
-
 def compare_pair(
     pair: PairSpec,
     label: str | None = None,
@@ -172,7 +129,7 @@ def compare_pair(
     candidate = Gesture(candidate_points, pair_label, effective_rate)
     summary = SummaryGesture([reference], alignment_type, summary_shape, popular_shape)
 
-    metrics = _compute_metrics(candidate, summary, round_precision)
+    metrics = compute_metrics(candidate, summary, round_precision=round_precision)
 
     row = {
         "pairKey": pair.key,
