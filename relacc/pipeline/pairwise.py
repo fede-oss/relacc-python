@@ -110,10 +110,6 @@ def _sampling_rate(reference_points, candidate_points, rate):
     return max(24, MathUtil.factorial(max_strokes))
 
 
-def _compute_metrics(candidate: Gesture, summary: SummaryGesture, round_precision: int):
-    return compute_metrics(candidate, summary, round_precision=round_precision)
-
-
 def compare_pair(
     pair: PairSpec,
     label: str | None = None,
@@ -133,7 +129,7 @@ def compare_pair(
     candidate = Gesture(candidate_points, pair_label, effective_rate)
     summary = SummaryGesture([reference], alignment_type, summary_shape, popular_shape)
 
-    metrics = _compute_metrics(candidate, summary, round_precision)
+    metrics = compute_metrics(candidate, summary, round_precision=round_precision)
 
     row = {
         "pairKey": pair.key,
