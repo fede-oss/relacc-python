@@ -208,9 +208,9 @@ def compare_against_reference_summary(
         for key, path in sorted(candidate_files.items())
     ]
 
-    all_points = [entry[2] for entry in reference_entries]
-    all_points.extend(entry[2] for entry in candidate_entries)
-    effective_rate = _sampling_rate_for_sets(all_points, rate)
+    # In summary mode the reference summary should be independent of candidate data.
+    reference_points = [entry[2] for entry in reference_entries]
+    effective_rate = _sampling_rate_for_sets(reference_points, rate)
 
     summary_label = label or "reference-summary"
     reference_gestures = [

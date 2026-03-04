@@ -45,7 +45,11 @@ def compute_distribution_metrics(
     candidate_values: Iterable[float],
 ) -> Dict[str, float]:
     """Compute all registered distribution metrics for two value collections."""
+    # Materialize once so multiple metrics can safely consume the same inputs.
+    ref_values = list(reference_values)
+    cand_values = list(candidate_values)
+
     results: Dict[str, float] = {}
     for name, metric_fn in _DISTRIBUTION_METRIC_DEFINITIONS:
-        results[name] = metric_fn(reference_values, candidate_values)
+        results[name] = metric_fn(ref_values, cand_values)
     return results
