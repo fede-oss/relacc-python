@@ -20,6 +20,20 @@ def _sample_rows(offset=0, stroke_1=0, stroke_2=1):
     ]
 
 
+def _sample_rows_with_stroke_count(stroke_count: int, offset=0):
+    rows = ["stroke_id x y time is_writing"]
+    time = 0
+    x = 10 + offset
+    for stroke_id in range(stroke_count):
+        rows.append(f"{stroke_id} {x} 20 {time} 1")
+        time += 10
+        x += 2
+        rows.append(f"{stroke_id} {x} 22 {time} 1")
+        time += 10
+        x += 2
+    return rows
+
+
 def _metric_dict(value=0.0):
     return {name: value for name in Pairwise.METRIC_NAMES}
 
@@ -121,6 +135,15 @@ def test_read_points_and_sampling_rate(tmp_path):
     assert smart_rate == 24
 
 
+def test_sampling_rate_for_sets_uses_max_strokes_when_rate_missing(tmp_path):
+    csv_file = tmp_path / "many_strokes.csv"
+    _write_csv(csv_file, _sample_rows_with_stroke_count(5))
+    points = Pairwise._read_points(str(csv_file))
+
+    inferred_rate = Pairwise._sampling_rate_for_sets([points], None)
+    assert inferred_rate == 24
+
+
 def test_compute_compare_and_run_pairwise(tmp_path):
     ref = tmp_path / "ref.csv"
     cand = tmp_path / "cand.csv"
@@ -204,6 +227,26 @@ def test_run_pairwise_summary_mode_compares_all_candidates(tmp_path):
     assert all(row["referenceCount"] == 2 for row in payload["pairs"])
 
 
+def test_run_pairwise_summary_mode_auto_rate_uses_reference_only(tmp_path):
+    reference_dir = tmp_path / "reference"
+    candidate_dir = tmp_path / "candidate"
+
+    _write_csv(reference_dir / "ref_a.csv", _sample_rows_with_stroke_count(2, 0))
+    _write_csv(reference_dir / "ref_b.csv", _sample_rows_with_stroke_count(2, 3))
+
+    # Candidate has many strokes; summary-mode auto-rate should not depend on this.
+    _write_csv(candidate_dir / "cand_many_strokes.csv", _sample_rows_with_stroke_count(5, 1))
+
+    payload = Pairwise.run_pairwise_comparison(
+        str(reference_dir),
+        str(candidate_dir),
+        comparison_mode="summary",
+    )
+
+    assert payload["metadata"]["comparisonMode"] == "summary"
+    assert payload["pairs"][0]["rate"] == 24
+
+
 def test_run_pairwise_invalid_mode_and_summary_validation(tmp_path):
     ref = tmp_path / "ref.csv"
     cand = tmp_path / "cand.csv"
@@ -215,6 +258,34 @@ def test_run_pairwise_invalid_mode_and_summary_validation(tmp_path):
 
     with pytest.raises(ValueError, match="Invalid summary shape"):
         Pairwise.run_pairwise_comparison(str(ref), str(cand), summary_shape="average")
+
+
+def test_run_pairwise_summary_mode_requires_reference_csvs(tmp_path):
+    reference_dir = tmp_path / "reference"
+    candidate_dir = tmp_path / "candidate"
+    reference_dir.mkdir()
+    _write_csv(candidate_dir / "cand.csv", _sample_rows())
+
+    with pytest.raises(ValueError, match="No reference CSV files found"):
+        Pairwise.run_pairwise_comparison(
+            str(reference_dir),
+            str(candidate_dir),
+            comparison_mode="summary",
+        )
+
+
+def test_run_pairwise_summary_mode_requires_candidate_csvs(tmp_path):
+    reference_dir = tmp_path / "reference"
+    candidate_dir = tmp_path / "candidate"
+    _write_csv(reference_dir / "ref.csv", _sample_rows())
+    candidate_dir.mkdir()
+
+    with pytest.raises(ValueError, match="No candidate CSV files found"):
+        Pairwise.run_pairwise_comparison(
+            str(reference_dir),
+            str(candidate_dir),
+            comparison_mode="summary",
+        )
 
 
 def test_format_pair_rows_csv_with_escaping_and_missing_values():
