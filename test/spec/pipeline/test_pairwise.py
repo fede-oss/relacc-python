@@ -260,6 +260,21 @@ def test_run_pairwise_invalid_mode_and_summary_validation(tmp_path):
         Pairwise.run_pairwise_comparison(str(ref), str(cand), summary_shape="average")
 
 
+def test_run_pairwise_summary_shape_is_case_insensitive(tmp_path):
+    ref = tmp_path / "ref.csv"
+    cand = tmp_path / "cand.csv"
+    _write_csv(ref, _sample_rows())
+    _write_csv(cand, _sample_rows(1))
+
+    payload = Pairwise.run_pairwise_comparison(
+        str(ref),
+        str(cand),
+        summary_shape="Centroid",
+    )
+    assert payload["pairs"][0]["summary"] == "centroid"
+    assert payload["metadata"]["summary"] == "centroid"
+
+
 def test_run_pairwise_summary_mode_requires_reference_csvs(tmp_path):
     reference_dir = tmp_path / "reference"
     candidate_dir = tmp_path / "candidate"

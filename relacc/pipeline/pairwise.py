@@ -48,21 +48,24 @@ def _pair_key(relative_csv_path: str) -> str:
     return rel_path.with_suffix("").as_posix()
 
 
-def _validate_summary_shape(summary_shape: str | None):
+def _normalize_summary_shape(summary_shape: str | None):
     if summary_shape is None:
-        return
-    if summary_shape not in SUMMARY_SHAPES:
+        return None
+
+    normalized_summary = summary_shape.strip().lower()
+    if normalized_summary not in SUMMARY_SHAPES:
         raise ValueError(
             "Invalid summary shape (%s). Supported values: centroid, medoid, kcentroid, kmedoid."
             % summary_shape
         )
+    return normalized_summary
 
 
 def _normalize_mode(comparison_mode: str | None):
     mode = (comparison_mode or DIRECT_MODE).strip().lower()
     if mode not in COMPARISON_MODES:
         raise ValueError(
-            "Invalid comparison mode (%s). Supported values: direct, summary." % comparison_mode
+            "Invalid comparison mode (%s). Supported values: direct, summary." % mode
         )
     return mode
 
@@ -261,7 +264,7 @@ def run_pairwise_comparison(
     round_precision: int = 3,
     comparison_mode: str = DIRECT_MODE,
 ):
-    _validate_summary_shape(summary_shape)
+    summary_shape = _normalize_summary_shape(summary_shape)
     mode = _normalize_mode(comparison_mode)
 
     if mode == DIRECT_MODE:

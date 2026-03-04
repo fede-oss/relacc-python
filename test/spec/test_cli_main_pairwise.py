@@ -157,6 +157,33 @@ def test_main_pairwise_summary_mode_json(tmp_path):
     assert all(row["mode"] == "summary" for row in payload["pairs"])
 
 
+def test_main_pairwise_summary_accepts_mixed_case(tmp_path):
+    ref = tmp_path / "ref.csv"
+    cand = tmp_path / "cand.csv"
+    _write_csv(ref, _sample_rows(0))
+    _write_csv(cand, _sample_rows(1))
+
+    res = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "main-pairwise.py"),
+            "--summary",
+            "Centroid",
+            "-f",
+            "json",
+            str(ref),
+            str(cand),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(res.stdout)
+    assert payload["pairs"][0]["summary"] == "centroid"
+
+
 def test_main_pairwise_invalid_format_fails(tmp_path):
     ref = tmp_path / "ref.csv"
     cand = tmp_path / "cand.csv"
