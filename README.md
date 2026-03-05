@@ -19,13 +19,13 @@ If your system Python is marked as "externally managed" (common on newer Debian/
 python3 -m pip install --break-system-packages -e .
 ```
 
-## Core Concept: One-vs-Many Evaluation
+## One-vs-Many Evaluation
 
 Both `relacc` and `relacc-canvas` work the same way conceptually:
 
 1. You pass **multiple CSV files** for the same gesture (e.g. 10 trials of an arrow gesture).
 2. A single **summary gesture** (the reference) is computed from the whole collection.
-3. Every individual sample is measured against that reference, producing 12 metrics per sample.
+3. Every individual sample is measured against that reference, producing metrics per sample.
 
 The metrics cover:
 
@@ -60,9 +60,8 @@ The summary gesture is the computed reference all samples are measured against. 
 | `kcentroid` | The actual gesture in the collection **nearest to the centroid** (1-NN search) | Yes |
 | `kmedoid` | The actual gesture in the collection **nearest to the medoid** (1-NN search) | Yes |
 
-`centroid` and `medoid` produce a synthetic shape that may not correspond to any real recording. `kcentroid` and `kmedoid` always return a real gesture from the input — useful when you want a natural, plausible reference with realistic timing and stroke structure.
-
-Use `-p` (`--popular`) to filter out gestures whose stroke count differs from the most common one before building the summary — handy when a subset of samples accidentally has an extra stroke.
+`centroid` and `medoid` produce a synthetic shape that may not correspond to any real recording. `kcentroid` and `kmedoid` always return a real gesture from the input.
+Use `-p` (`--popular`) to filter out gestures whose stroke count differs from the most common one before building the summary.
 
 ---
 
@@ -199,7 +198,7 @@ Key flags:
 
 ## Add a new metric
 
-There are now two metric families:
+There are two metric families:
 
 - Gesture metrics (`relacc/metrics.py`): used by both `relacc` and `relacc-pairwise`.
 - Distribution metrics (`relacc/distribution_metrics.py`): distribution metrics scaffold
@@ -214,7 +213,7 @@ After step 2, it is automatically included in:
 - `relacc` per-file output and `-s` stats output
 - `relacc-pairwise` JSON/CSV output
 
-### 2) Add a distribution metric (for distribution comparison workflows)
+### 2) Add a distribution metric
 
 1. Implement a function in `relacc/distribution_metrics.py` with signature:
    `(reference_values, candidate_values) -> float`.
