@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Sequence
+from typing import Dict, List, Sequence, Tuple
 
 from relacc.geom.pointset import PointSet
 from relacc.gestures.gesture import Gesture
@@ -18,6 +18,13 @@ class PairSpec:
     key: str
     reference_file: str
     candidate_file: str
+
+
+DIRECT_MODE = "direct"
+SUMMARY_MODE = "summary"
+COMPARISON_MODES: Tuple[str, str] = (DIRECT_MODE, SUMMARY_MODE)
+
+SUMMARY_SHAPES = {"centroid", "medoid", "kcentroid", "kmedoid"}
 
 
 def _list_csv_files(path: Path) -> Dict[str, Path]:
@@ -39,6 +46,28 @@ def _list_csv_files(path: Path) -> Dict[str, Path]:
 def _pair_key(relative_csv_path: str) -> str:
     rel_path = Path(relative_csv_path)
     return rel_path.with_suffix("").as_posix()
+
+
+def _normalize_summary_shape(summary_shape: str | None):
+    if summary_shape is None:
+        return None
+
+    normalized_summary = summary_shape.strip().lower()
+    if normalized_summary not in SUMMARY_SHAPES:
+        raise ValueError(
+            "Invalid summary shape (%s). Supported values: centroid, medoid, kcentroid, kmedoid."
+            % summary_shape
+        )
+    return normalized_summary
+
+
+def _normalize_mode(comparison_mode: str | None):
+    mode = (comparison_mode or DIRECT_MODE).strip().lower()
+    if mode not in COMPARISON_MODES:
+        raise ValueError(
+            "Invalid comparison mode (%s). Supported values: direct, summary." % mode
+        )
+    return mode
 
 
 def discover_pairs(reference_input: str, candidate_input: str, strict: bool = True):
@@ -96,18 +125,23 @@ def _read_points(csv_file: str):
     return points
 
 
-def _sampling_rate(reference_points, candidate_points, rate):
+def _sampling_rate_for_sets(point_sets, rate):
     if rate is not None:
         parsed_rate = int(rate)
         if parsed_rate < 1:
             raise ValueError("Sampling rate must be >= 1.")
         return parsed_rate
 
-    max_strokes = max(
-        PointSet.countStrokes(reference_points),
-        PointSet.countStrokes(candidate_points),
-    )
+    max_strokes = 1
+    for points in point_sets:
+        stroke_count = PointSet.countStrokes(points)
+        if stroke_count > max_strokes:
+            max_strokes = stroke_count
     return max(24, MathUtil.factorial(max_strokes))
+
+
+def _sampling_rate(reference_points, candidate_points, rate):
+    return _sampling_rate_for_sets([reference_points, candidate_points], rate)
 
 
 def compare_pair(
@@ -136,6 +170,8 @@ def compare_pair(
         "label": pair_label,
         "referenceFile": pair.reference_file,
         "candidateFile": pair.candidate_file,
+        "mode": DIRECT_MODE,
+        "referenceCount": 1,
         "rate": effective_rate,
         "alignment": alignment_type,
         "summary": summary_shape,
@@ -143,6 +179,77 @@ def compare_pair(
     }
     row.update(metrics)
     return row
+
+
+def compare_against_reference_summary(
+    reference_input: str,
+    candidate_input: str,
+    label: str | None = None,
+    rate: int | None = None,
+    alignment_type: int = PtAlignType.CHRONOLOGICAL,
+    summary_shape: str | None = None,
+    popular_shape: bool = False,
+    round_precision: int = 3,
+):
+    reference_root = Path(reference_input)
+    candidate_root = Path(candidate_input)
+
+    reference_files = _list_csv_files(reference_root)
+    if len(reference_files) == 0:
+        raise ValueError("No reference CSV files found.")
+
+    candidate_files = _list_csv_files(candidate_root)
+    if len(candidate_files) == 0:
+        raise ValueError("No candidate CSV files found.")
+
+    reference_entries = [
+        (key, str(path), _read_points(str(path)))
+        for key, path in sorted(reference_files.items())
+    ]
+    candidate_entries = [
+        (key, str(path), _read_points(str(path)))
+        for key, path in sorted(candidate_files.items())
+    ]
+
+    # In summary mode the reference summary should be independent of candidate data.
+    reference_points = [entry[2] for entry in reference_entries]
+    effective_rate = _sampling_rate_for_sets(reference_points, rate)
+
+    summary_label = label or "reference-summary"
+    reference_gestures = [
+        Gesture(points, summary_label, effective_rate)
+        for _, _, points in reference_entries
+    ]
+    reference_summary = SummaryGesture(
+        reference_gestures,
+        alignment_type,
+        summary_shape,
+        popular_shape,
+    )
+
+    results = []
+    for candidate_key, candidate_path, candidate_points in candidate_entries:
+        pair_key = _pair_key(candidate_key)
+        pair_label = label or pair_key
+        candidate = Gesture(candidate_points, pair_label, effective_rate)
+        metrics = compute_metrics(candidate, reference_summary, round_precision=round_precision)
+
+        row = {
+            "pairKey": pair_key,
+            "label": pair_label,
+            "referenceFile": str(reference_root),
+            "candidateFile": candidate_path,
+            "mode": SUMMARY_MODE,
+            "referenceCount": len(reference_entries),
+            "rate": effective_rate,
+            "alignment": alignment_type,
+            "summary": summary_shape,
+            "popular": bool(popular_shape),
+        }
+        row.update(metrics)
+        results.append(row)
+
+    return results, [], [], len(reference_entries)
 
 
 def run_pairwise_comparison(
@@ -155,29 +262,49 @@ def run_pairwise_comparison(
     popular_shape: bool = False,
     strict: bool = True,
     round_precision: int = 3,
+    comparison_mode: str = DIRECT_MODE,
 ):
-    pairs, missing_in_candidate, missing_in_reference = discover_pairs(
-        reference_input,
-        candidate_input,
-        strict=strict,
-    )
+    summary_shape = _normalize_summary_shape(summary_shape)
+    mode = _normalize_mode(comparison_mode)
 
-    results = [
-        compare_pair(
-            pair,
-            label=label,
-            rate=rate,
-            alignment_type=alignment_type,
-            summary_shape=summary_shape,
-            popular_shape=popular_shape,
-            round_precision=round_precision,
+    if mode == DIRECT_MODE:
+        pairs, missing_in_candidate, missing_in_reference = discover_pairs(
+            reference_input,
+            candidate_input,
+            strict=strict,
         )
-        for pair in pairs
-    ]
+        results = [
+            compare_pair(
+                pair,
+                label=label,
+                rate=rate,
+                alignment_type=alignment_type,
+                summary_shape=summary_shape,
+                popular_shape=popular_shape,
+                round_precision=round_precision,
+            )
+            for pair in pairs
+        ]
+        reference_count = len(results)
+    else:
+        results, missing_in_candidate, missing_in_reference, reference_count = (
+            compare_against_reference_summary(
+                reference_input,
+                candidate_input,
+                label=label,
+                rate=rate,
+                alignment_type=alignment_type,
+                summary_shape=summary_shape,
+                popular_shape=popular_shape,
+                round_precision=round_precision,
+            )
+        )
 
     return {
         "metadata": {
+            "comparisonMode": mode,
             "pairCount": len(results),
+            "referenceCount": reference_count,
             "missingInCandidate": missing_in_candidate,
             "missingInReference": missing_in_reference,
             "strict": bool(strict),
@@ -198,6 +325,8 @@ def format_pair_rows_csv(rows: Sequence[Dict[str, object]]) -> str:
         "label",
         "referenceFile",
         "candidateFile",
+        "mode",
+        "referenceCount",
         "rate",
         "alignment",
         "summary",
