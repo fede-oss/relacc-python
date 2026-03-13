@@ -1,5 +1,12 @@
 import math
 
+from relacc.dtw import (
+    ddtw as derivative_dtw,
+    dtw as classic_dtw,
+    length_independent_dtw,
+    weighted_derivative_dtw,
+    weighted_dtw,
+)
 from relacc.geom.measure import Measure
 from relacc.geom.pointset import PointSet
 from relacc.geom.vector import Vector
@@ -168,6 +175,74 @@ def strokeOrderError(gesture, summaryShape):
     return abs(oDollarCost - pDollarCost)
 
 
+def _dtwComparisonPoints(gesture, summaryShape):
+    alignmentType = getattr(summaryShape, "alignmentType", PtAlignType.CHRONOLOGICAL)
+    if alignmentType is None:
+        alignmentType = PtAlignType.CHRONOLOGICAL
+    return (
+        summaryShape.alignGesture(gesture, alignmentType),
+        summaryShape.getPoints(),
+    )
+
+
+def dtwDistance(gesture, summaryShape):
+    """Classic DTW total cost on chronological point sequences.
+
+    Source: Chen et al., "Complex Handwriting Trajectory Recovery:
+    Evaluation Metrics and Algorithm" (ACCV 2022).
+    https://openaccess.thecvf.com/content/ACCV2022/papers/Chen_Complex_Handwriting_Trajectory_Recovery_Evaluation_Metrics_and_Algorithm_ACCV_2022_paper.pdf
+    """
+
+    gesturePts, summaryPts = _dtwComparisonPoints(gesture, summaryShape)
+    return classic_dtw(gesturePts, summaryPts).cost
+
+
+def ldtwDistance(gesture, summaryShape):
+    """Length-independent DTW, i.e. DTW normalized by warping-path length.
+
+    Source: Chen et al., "Complex Handwriting Trajectory Recovery:
+    Evaluation Metrics and Algorithm" (ACCV 2022).
+    https://openaccess.thecvf.com/content/ACCV2022/papers/Chen_Complex_Handwriting_Trajectory_Recovery_Evaluation_Metrics_and_Algorithm_ACCV_2022_paper.pdf
+    """
+
+    gesturePts, summaryPts = _dtwComparisonPoints(gesture, summaryShape)
+    return length_independent_dtw(gesturePts, summaryPts)
+
+
+def ddtwDistance(gesture, summaryShape):
+    """Derivative DTW compares local trajectory trends instead of raw points.
+
+    Source: Keogh and Pazzani, "Derivative Dynamic Time Warping" (SDM 2001).
+    """
+
+    gesturePts, summaryPts = _dtwComparisonPoints(gesture, summaryShape)
+    return derivative_dtw(gesturePts, summaryPts).cost
+
+
+def wdtwDistance(gesture, summaryShape):
+    """Weighted DTW penalizes alignments with larger phase offsets.
+
+    Source: Jeong et al., "Weighted dynamic time warping for time series
+    classification" (Pattern Recognition, 2011).
+    https://doi.org/10.1016/j.patcog.2010.09.022
+    """
+
+    gesturePts, summaryPts = _dtwComparisonPoints(gesture, summaryShape)
+    return weighted_dtw(gesturePts, summaryPts).cost
+
+
+def wddtwDistance(gesture, summaryShape):
+    """Weighted derivative DTW combines slope-based matching and phase penalties.
+
+    Source: Jeong et al., "Weighted dynamic time warping for time series
+    classification" (Pattern Recognition, 2011).
+    https://doi.org/10.1016/j.patcog.2010.09.022
+    """
+
+    gesturePts, summaryPts = _dtwComparisonPoints(gesture, summaryShape)
+    return weighted_derivative_dtw(gesturePts, summaryPts).cost
+
+
 def mean(arr):
     if len(arr) == 0:
         raise ValueError("Input set cannot be empty.")
@@ -214,3 +289,8 @@ speed_array = speedArray
 stroke_error = strokeError
 num_strokes = numStrokes
 stroke_order_error = strokeOrderError
+dtw_distance = dtwDistance
+ldtw_distance = ldtwDistance
+ddtw_distance = ddtwDistance
+wdtw_distance = wdtwDistance
+wddtw_distance = wddtwDistance

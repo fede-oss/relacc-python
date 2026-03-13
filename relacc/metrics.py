@@ -25,6 +25,11 @@ _METRIC_DEFINITIONS: Tuple[Tuple[str, MetricFn], ...] = (
     ("velocityVariability", RelAcc.velocityVariability),
     ("strokeError", RelAcc.strokeError),
     ("strokeOrderError", RelAcc.strokeOrderError),
+    ("dtwDistance", RelAcc.dtwDistance),
+    ("ldtwDistance", RelAcc.ldtwDistance),
+    ("ddtwDistance", RelAcc.ddtwDistance),
+    ("wdtwDistance", RelAcc.wdtwDistance),
+    ("wddtwDistance", RelAcc.wddtwDistance),
 )
 
 METRIC_NAMES: Tuple[str, ...] = tuple(name for name, _ in _METRIC_DEFINITIONS)

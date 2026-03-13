@@ -63,6 +63,7 @@ def test_main_pairwise_json_stdout_single_pair(tmp_path):
     assert payload["pairs"][0]["rate"] == 5
     assert payload["pairs"][0]["mode"] == "direct"
     assert "shapeError" in payload["pairs"][0]
+    assert "dtwDistance" in payload["pairs"][0]
 
 
 def test_main_pairwise_alignment_zero_is_accepted(tmp_path):

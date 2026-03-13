@@ -48,6 +48,7 @@ def test_main_json_stats_output(tmp_path):
     assert "metadata" in payload
     assert "results" in payload
     assert "shapeError" in payload["results"]
+    assert "dtwDistance" in payload["results"]
 
 
 def test_main_csv_and_xml_file_output(tmp_path):
