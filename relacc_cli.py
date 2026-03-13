@@ -31,17 +31,24 @@ def _int_cast(value):
 
 def getStats(arr):
     n = len(arr)
+    finite_values = [value for value in arr if math.isfinite(value)]
     mean = 0
     mdn = 0
     sd = 0
     minimum = 0
     maximum = 0
-    if n > 0:
-        mean = statistics.fmean(arr)
-        mdn = statistics.median(arr)
-        sd = statistics.stdev(arr) if n > 1 else 0
-        minimum = min(arr)
-        maximum = max(arr)
+    if n > 0 and finite_values:
+        mean = statistics.fmean(finite_values)
+        mdn = statistics.median(finite_values)
+        sd = statistics.stdev(finite_values) if len(finite_values) > 1 else 0
+        minimum = min(finite_values)
+        maximum = max(finite_values)
+    elif n > 0:
+        mean = float("nan")
+        mdn = float("nan")
+        sd = float("nan")
+        minimum = float("nan")
+        maximum = float("nan")
 
     return {
         "mean": MathUtil.roundTo(mean),

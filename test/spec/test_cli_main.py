@@ -1,7 +1,12 @@
 import json
+import math
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
+
+import relacc_cli
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -100,3 +105,25 @@ def test_main_csv_and_xml_file_output(tmp_path):
     assert out_xml.exists()
     assert out_csv.read_text(encoding="utf-8").startswith("measure n mean")
     assert out_xml.read_text(encoding="utf-8").startswith("<?xml")
+
+
+def test_get_stats_ignores_non_finite_values_when_possible():
+    stats = relacc_cli.getStats([1.0, float("nan"), 3.0, float("inf")])
+    assert stats == {
+        "mean": 2.0,
+        "mdn": 2.0,
+        "sd": pytest.approx(1.414, abs=1e-3),
+        "min": 1.0,
+        "max": 3.0,
+        "n": 4,
+    }
+
+
+def test_get_stats_returns_nan_when_all_values_are_non_finite():
+    stats = relacc_cli.getStats([float("nan"), float("inf")])
+    assert math.isnan(stats["mean"])
+    assert math.isnan(stats["mdn"])
+    assert math.isnan(stats["sd"])
+    assert math.isnan(stats["min"])
+    assert math.isnan(stats["max"])
+    assert stats["n"] == 2
