@@ -43,8 +43,15 @@ The metrics cover:
 | `velocityVariability` | Consistency of speed deviation |
 | `strokeError` | Difference in number of strokes |
 | `strokeOrderError` | Degree of stroke-order violation |
+| `dtwDistance` | Classic Dynamic Time Warping total alignment cost |
+| `ldtwDistance` | DTW normalized by warping-path length |
+| `ddtwDistance` | Derivative DTW, comparing local trajectory trends |
+| `wdtwDistance` | Weighted DTW, penalizing larger phase offsets |
+| `wddtwDistance` | Weighted derivative DTW |
 
 Lower values always mean closer to the reference. Passing a single CSV produces all zeros (reference = the file itself).
+
+The DTW-family metrics are computed on the chronological point sequences after the same resampling and translation steps used elsewhere in the toolkit.
 
 ---
 
