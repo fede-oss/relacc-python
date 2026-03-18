@@ -95,7 +95,7 @@ def test_dtw_family_metrics():
     assert RelAcc.wddtwDistance(gesture, summaryShape) < RelAcc.ddtwDistance(gesture, summaryShape)
 
 
-def test_dtw_family_metrics_use_summary_alignment_type():
+def test_dtw_family_metrics_ignore_summary_alignment_type():
     summaryPts = [p(0, 0, 0, 0), p(10, 0, 10, 0)]
     chronoPts = [p(0, 0, 0, 0), p(20, 0, 10, 0)]
     cloudPts = [p(0, 0, 0, 0), p(10, 0, 10, 0)]
@@ -117,7 +117,9 @@ def test_dtw_family_metrics_use_summary_alignment_type():
 
     summaryShape = SummaryShape()
     assert summaryShape.alignGesture(gesture, summaryShape.alignmentType) == cloudPts
-    assert RelAcc.dtwDistance(gesture, summaryShape) == 0
+    assert summaryShape.alignGesture(gesture, PtAlignType.CHRONOLOGICAL) == chronoPts
+    assert RelAcc.dtwDistance(gesture, summaryShape) == 10
+    assert RelAcc.ldtwDistance(gesture, summaryShape) == 5
 
 
 def test_mean_stdev_edge_cases():

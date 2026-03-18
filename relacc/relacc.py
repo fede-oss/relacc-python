@@ -176,11 +176,8 @@ def strokeOrderError(gesture, summaryShape):
 
 
 def _dtwComparisonPoints(gesture, summaryShape):
-    alignmentType = getattr(summaryShape, "alignmentType", PtAlignType.CHRONOLOGICAL)
-    if alignmentType is None:
-        alignmentType = PtAlignType.CHRONOLOGICAL
     return (
-        summaryShape.alignGesture(gesture, alignmentType),
+        summaryShape.alignGesture(gesture, PtAlignType.CHRONOLOGICAL),
         summaryShape.getPoints(),
     )
 
