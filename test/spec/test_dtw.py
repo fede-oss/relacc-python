@@ -18,7 +18,15 @@ def test_standard_and_length_independent_dtw_for_simple_sequences():
 
     assert result.cost == pytest.approx(2.0)
     assert result.path_length == 3
-    assert Dtw.length_independent_dtw(first, second) == pytest.approx(2.0 / 3.0)
+    assert Dtw.length_independent_dtw(first, second) == pytest.approx(0.5)
+
+
+def test_length_independent_dtw_prefers_longer_equal_cost_path():
+    first = [p(0, 0), p(0, 0)]
+    second = [p(0, 0), p(1, 0)]
+
+    assert Dtw.dtw(first, second) == Dtw.DTWResult(cost=1.0, path_length=2)
+    assert Dtw.length_independent_dtw(first, second) == pytest.approx(1.0 / 3.0)
 
 
 def test_derivative_and_weighted_variants_handle_edge_cases():

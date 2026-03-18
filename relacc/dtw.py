@@ -67,7 +67,7 @@ def _logistic_weight(index_gap, series_length, penalty_g):
     return scaled / (1.0 + scaled)
 
 
-def _best_predecessor(costs, path_lengths, i, j):
+def _best_predecessor(costs, path_lengths, i, j, prefer_longer_path=False):
     candidates = []
     if i > 0:
         candidates.append((costs[i - 1][j], path_lengths[i - 1][j], 1))
@@ -75,10 +75,12 @@ def _best_predecessor(costs, path_lengths, i, j):
         candidates.append((costs[i][j - 1], path_lengths[i][j - 1], 1))
     if i > 0 and j > 0:
         candidates.append((costs[i - 1][j - 1], path_lengths[i - 1][j - 1], 0))
+    if prefer_longer_path:
+        return min(candidates, key=lambda item: (item[0], -item[1], item[2]))
     return min(candidates, key=lambda item: (item[0], item[1], item[2]))
 
 
-def _run_dtw(rows, cols, local_cost: Callable[[int, int], float]) -> DTWResult:
+def _run_dtw(rows, cols, local_cost: Callable[[int, int], float], prefer_longer_path=False) -> DTWResult:
     costs = [[float("inf")] * cols for _ in range(rows)]
     path_lengths = [[0] * cols for _ in range(rows)]
 
@@ -90,7 +92,13 @@ def _run_dtw(rows, cols, local_cost: Callable[[int, int], float]) -> DTWResult:
                 path_lengths[i][j] = 1
                 continue
 
-            prev_cost, prev_length, _ = _best_predecessor(costs, path_lengths, i, j)
+            prev_cost, prev_length, _ = _best_predecessor(
+                costs,
+                path_lengths,
+                i,
+                j,
+                prefer_longer_path=prefer_longer_path,
+            )
             costs[i][j] = prev_cost + step_cost
             path_lengths[i][j] = prev_length + 1
 
@@ -106,7 +114,12 @@ def dtw(points_a, points_b) -> DTWResult:
 
 
 def length_independent_dtw(points_a, points_b) -> float:
-    result = dtw(points_a, points_b)
+    result = _run_dtw(
+        len(points_a),
+        len(points_b),
+        lambda i, j: Measure.distance(points_a[i], points_b[j]),
+        prefer_longer_path=True,
+    )
     return result.cost / result.path_length
 
 
