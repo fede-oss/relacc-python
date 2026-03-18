@@ -188,9 +188,9 @@ def _dtwComparisonPoints(gesture, summaryShape):
 def dtwDistance(gesture, summaryShape):
     """Classic DTW total cost on chronological point sequences.
 
-    Source: Chen et al., "Complex Handwriting Trajectory Recovery:
-    Evaluation Metrics and Algorithm" (ACCV 2022).
-    https://openaccess.thecvf.com/content/ACCV2022/papers/Chen_Complex_Handwriting_Trajectory_Recovery_Evaluation_Metrics_and_Algorithm_ACCV_2022_paper.pdf
+    Source: Sakoe and Chiba, "Dynamic programming algorithm optimization
+    for spoken word recognition" (IEEE TASSP, 1978).
+    https://doi.org/10.1109/TASSP.1978.1163055
     """
 
     gesturePts, summaryPts = _dtwComparisonPoints(gesture, summaryShape)
