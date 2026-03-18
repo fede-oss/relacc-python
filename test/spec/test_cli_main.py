@@ -115,7 +115,7 @@ def test_get_stats_ignores_non_finite_values_when_possible():
         "sd": pytest.approx(1.414, abs=1e-3),
         "min": 1.0,
         "max": 3.0,
-        "n": 4,
+        "n": 2,
     }
 
 
@@ -126,4 +126,4 @@ def test_get_stats_returns_nan_when_all_values_are_non_finite():
     assert math.isnan(stats["sd"])
     assert math.isnan(stats["min"])
     assert math.isnan(stats["max"])
-    assert stats["n"] == 2
+    assert stats["n"] == 0
