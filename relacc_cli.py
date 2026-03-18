@@ -60,9 +60,20 @@ def getStats(arr):
     }
 
 
+def _json_safe(value):
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    return value
+
+
 def toJSON(obj, defaults):
     meta = {"date": DateUtil.utc(), "time": DateUtil.now(), "args": defaults}
-    return json.dumps({"metadata": meta, "results": obj})
+    payload = {"metadata": meta, "results": _json_safe(obj)}
+    return json.dumps(payload, allow_nan=False)
 
 
 def toCSV(obj):

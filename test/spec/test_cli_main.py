@@ -127,3 +127,18 @@ def test_get_stats_returns_nan_when_all_values_are_non_finite():
     assert math.isnan(stats["min"])
     assert math.isnan(stats["max"])
     assert stats["n"] == 0
+
+
+def test_to_json_encodes_all_non_finite_stats_as_null():
+    stats = {"shapeError": relacc_cli.getStats([float("nan"), float("inf")])}
+
+    payload = json.loads(relacc_cli.toJSON(stats, {"format": "json"}))
+
+    assert payload["results"]["shapeError"] == {
+        "mean": None,
+        "mdn": None,
+        "sd": None,
+        "min": None,
+        "max": None,
+        "n": 0,
+    }
