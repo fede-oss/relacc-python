@@ -52,6 +52,7 @@ The metrics cover:
 Lower values always mean closer to the reference. Passing a single CSV produces all zeros (reference = the file itself).
 
 The DTW-family metrics are computed on the chronological point sequences after the same resampling and translation steps used elsewhere in the toolkit.
+For the weighted variants, the logistic phase-penalty slope defaults to `0.25` (`penalty_g`) and can be overridden from the Python API when stricter or looser off-diagonal penalties are needed.
 
 ---
 
