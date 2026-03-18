@@ -1,6 +1,9 @@
+from contextlib import ExitStack, contextmanager
 import gzip
+import io
 import math
 import re
+import tarfile
 
 from relacc.geom.point import Point
 
@@ -56,12 +59,39 @@ class CSVUtil:
         callback(points)
 
     @staticmethod
+    @contextmanager
     def _open_text_auto(file):
         with open(file, "rb") as probe:
             signature = probe.read(2)
-        if signature == b"\x1f\x8b":
-            return gzip.open(file, "rt", encoding="utf-8", errors="replace")
-        return open(file, "r", encoding="utf-8", errors="replace")
+
+        with ExitStack() as stack:
+            if signature == b"\x1f\x8b":
+                text_stream = CSVUtil._open_gzip_payload(stack, file)
+            else:
+                text_stream = stack.enter_context(open(file, "r", encoding="utf-8", errors="replace"))
+
+            yield text_stream
+
+    @staticmethod
+    def _open_gzip_payload(stack, file):
+        try:
+            archive = stack.enter_context(tarfile.open(file, mode="r:gz"))
+        except tarfile.ReadError:
+            return stack.enter_context(gzip.open(file, "rt", encoding="utf-8", errors="replace"))
+
+        for member in archive:
+            if not member.isfile():
+                continue
+
+            payload = archive.extractfile(member)
+            if payload is None:
+                continue
+
+            buffer = stack.enter_context(payload)
+            text_stream = io.TextIOWrapper(buffer, encoding="utf-8", errors="replace")
+            return stack.enter_context(text_stream)
+
+        return stack.enter_context(gzip.open(file, "rt", encoding="utf-8", errors="replace"))
 
     @staticmethod
     def _detect_delimiter(header):
