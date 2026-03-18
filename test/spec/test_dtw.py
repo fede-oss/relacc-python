@@ -29,6 +29,25 @@ def test_length_independent_dtw_prefers_longer_equal_cost_path():
     assert Dtw.length_independent_dtw(first, second) == pytest.approx(1.0 / 3.0)
 
 
+def test_public_dtw_variants_reject_empty_sequences():
+    points = [p(0, 0)]
+
+    with pytest.raises(ValueError, match="points_a must contain at least one point\\."):
+        Dtw.dtw([], points)
+
+    with pytest.raises(ValueError, match="points_b must contain at least one point\\."):
+        Dtw.length_independent_dtw(points, [])
+
+    with pytest.raises(ValueError, match="points_a must contain at least one point\\."):
+        Dtw.ddtw([], points)
+
+    with pytest.raises(ValueError, match="points_b must contain at least one point\\."):
+        Dtw.weighted_dtw(points, [])
+
+    with pytest.raises(ValueError, match="points_a must contain at least one point\\."):
+        Dtw.weighted_derivative_dtw([], points)
+
+
 def test_derivative_and_weighted_variants_handle_edge_cases():
     single_a = [p(1, 1)]
     single_b = [p(4, 5)]
@@ -43,6 +62,30 @@ def test_derivative_and_weighted_variants_handle_edge_cases():
     assert Dtw.ddtw(first, first).cost == 0
     assert Dtw.weighted_dtw(first, second).cost < Dtw.dtw(first, second).cost
     assert Dtw.weighted_derivative_dtw(first, second).cost < Dtw.ddtw(first, second).cost
+
+
+def test_weighted_variants_respond_to_penalty_strength():
+    first = [p(0, 0), p(1, 1), p(2, 2)]
+    second = [p(0, 0), p(2, 2), p(4, 4)]
+
+    weak_penalty = Dtw.weighted_dtw(first, second, penalty_g=0.05).cost
+    strong_penalty = Dtw.weighted_dtw(first, second, penalty_g=1.0).cost
+    weak_derivative = Dtw.weighted_derivative_dtw(first, second, penalty_g=0.05).cost
+    strong_derivative = Dtw.weighted_derivative_dtw(first, second, penalty_g=1.0).cost
+
+    assert weak_penalty != pytest.approx(strong_penalty)
+    assert weak_derivative != pytest.approx(strong_derivative)
+
+
+def test_weighted_variants_reject_negative_penalty():
+    first = [p(0, 0), p(1, 1)]
+    second = [p(0, 0), p(1, 1)]
+
+    with pytest.raises(ValueError, match="penalty_g must be >= 0\\."):
+        Dtw.weighted_dtw(first, second, penalty_g=-0.1)
+
+    with pytest.raises(ValueError, match="penalty_g must be >= 0\\."):
+        Dtw.weighted_derivative_dtw(first, second, penalty_g=-0.1)
 
 
 def test_derivative_estimates_cover_start_middle_and_end():

@@ -95,6 +95,28 @@ def test_dtw_family_metrics():
     assert RelAcc.wddtwDistance(gesture, summaryShape) < RelAcc.ddtwDistance(gesture, summaryShape)
 
 
+def test_weighted_dtw_metric_wrappers_accept_custom_penalty():
+    _, _, _, gesture, summaryShape = _fixture_shapes()
+
+    weak_penalty = RelAcc.wdtwDistance(gesture, summaryShape, penalty_g=0.05)
+    strong_penalty = RelAcc.wdtwDistance(gesture, summaryShape, penalty_g=1.0)
+    weak_derivative = RelAcc.wddtwDistance(gesture, summaryShape, penalty_g=0.05)
+    strong_derivative = RelAcc.wddtwDistance(gesture, summaryShape, penalty_g=1.0)
+
+    assert weak_penalty != pytest.approx(strong_penalty)
+    assert weak_derivative != pytest.approx(strong_derivative)
+
+
+def test_weighted_dtw_metric_wrappers_reject_negative_penalty():
+    _, _, _, gesture, summaryShape = _fixture_shapes()
+
+    with pytest.raises(ValueError, match="penalty_g must be >= 0\\."):
+        RelAcc.wdtwDistance(gesture, summaryShape, penalty_g=-0.1)
+
+    with pytest.raises(ValueError, match="penalty_g must be >= 0\\."):
+        RelAcc.wddtwDistance(gesture, summaryShape, penalty_g=-0.1)
+
+
 def test_dtw_family_metrics_ignore_summary_alignment_type():
     summaryPts = [p(0, 0, 0, 0), p(10, 0, 10, 0)]
     chronoPts = [p(0, 0, 0, 0), p(20, 0, 10, 0)]

@@ -1,6 +1,7 @@
 import math
 
 from relacc.dtw import (
+    DEFAULT_WARPING_PENALTY,
     ddtw as derivative_dtw,
     dtw as classic_dtw,
     length_independent_dtw,
@@ -216,28 +217,32 @@ def ddtwDistance(gesture, summaryShape):
     return derivative_dtw(gesturePts, summaryPts).cost
 
 
-def wdtwDistance(gesture, summaryShape):
+def wdtwDistance(gesture, summaryShape, penalty_g=DEFAULT_WARPING_PENALTY):
     """Weighted DTW penalizes alignments with larger phase offsets.
 
     Source: Jeong et al., "Weighted dynamic time warping for time series
     classification" (Pattern Recognition, 2011).
     https://doi.org/10.1016/j.patcog.2010.09.022
+
+    ``penalty_g`` controls the steepness of the logistic phase penalty.
     """
 
     gesturePts, summaryPts = _dtwComparisonPoints(gesture, summaryShape)
-    return weighted_dtw(gesturePts, summaryPts).cost
+    return weighted_dtw(gesturePts, summaryPts, penalty_g=penalty_g).cost
 
 
-def wddtwDistance(gesture, summaryShape):
+def wddtwDistance(gesture, summaryShape, penalty_g=DEFAULT_WARPING_PENALTY):
     """Weighted derivative DTW combines slope-based matching and phase penalties.
 
     Source: Jeong et al., "Weighted dynamic time warping for time series
     classification" (Pattern Recognition, 2011).
     https://doi.org/10.1016/j.patcog.2010.09.022
+
+    ``penalty_g`` controls the steepness of the logistic phase penalty.
     """
 
     gesturePts, summaryPts = _dtwComparisonPoints(gesture, summaryShape)
-    return weighted_derivative_dtw(gesturePts, summaryPts).cost
+    return weighted_derivative_dtw(gesturePts, summaryPts, penalty_g=penalty_g).cost
 
 
 def mean(arr):
