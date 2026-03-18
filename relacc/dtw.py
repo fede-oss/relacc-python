@@ -10,9 +10,12 @@ from relacc.geom.measure import Measure
 
 
 # Keep a small custom DTW implementation so the project can work directly with
-# its point objects and avoid adding heavy numeric dependencies. aeon (dtw, ddtw, wdtw, wddtw)is a
-# viable future replacement if we decide the extra array-conversion layer and
-# different library defaults are worth the trade-off.
+# its point objects and avoid adding heavy numeric dependencies. aeon (dtw,
+# ddtw, wdtw, wddtw) is a viable future replacement if we decide the extra
+# array-conversion layer and different library defaults are worth the trade-off.
+
+# Project heuristic; tune empirically if a different gesture dataset needs a
+# stricter or looser phase penalty.
 DEFAULT_WARPING_PENALTY = 0.25
 
 
@@ -88,6 +91,9 @@ def _logistic_weight(index_gap: int, series_length: int, penalty_g: float) -> fl
     more aggressively.
     """
 
+    # This is the paper's modified logistic weight function with an implicit
+    # wmax=1. Jeong et al. report that changing wmax did not affect
+    # classification performance because it only rescales the positive weights.
     exponent = penalty_g * (index_gap - (series_length / 2.0))
     if exponent >= 0:
         scaled = math.exp(-exponent)
