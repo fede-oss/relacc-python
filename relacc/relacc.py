@@ -183,7 +183,7 @@ def _dtwComparisonPoints(gesture, summaryShape):
     )
 
 
-def dtwDistance(gesture, summaryShape):
+def dtwDistance(gesture, summaryShape, window=None):
     """Classic DTW total cost on chronological point sequences.
 
     Source: Sakoe and Chiba, "Dynamic programming algorithm optimization
@@ -192,10 +192,10 @@ def dtwDistance(gesture, summaryShape):
     """
 
     gesturePts, summaryPts = _dtwComparisonPoints(gesture, summaryShape)
-    return classic_dtw(gesturePts, summaryPts).cost
+    return classic_dtw(gesturePts, summaryPts, window=window).cost
 
 
-def ldtwDistance(gesture, summaryShape):
+def ldtwDistance(gesture, summaryShape, window=None):
     """Length-independent DTW, i.e. DTW normalized by warping-path length.
 
     Source: Chen et al., "Complex Handwriting Trajectory Recovery:
@@ -204,20 +204,20 @@ def ldtwDistance(gesture, summaryShape):
     """
 
     gesturePts, summaryPts = _dtwComparisonPoints(gesture, summaryShape)
-    return length_independent_dtw(gesturePts, summaryPts)
+    return length_independent_dtw(gesturePts, summaryPts, window=window)
 
 
-def ddtwDistance(gesture, summaryShape):
+def ddtwDistance(gesture, summaryShape, window=None):
     """Derivative DTW compares local trajectory trends instead of raw points.
 
     Source: Keogh and Pazzani, "Derivative Dynamic Time Warping" (SDM 2001).
     """
 
     gesturePts, summaryPts = _dtwComparisonPoints(gesture, summaryShape)
-    return derivative_dtw(gesturePts, summaryPts).cost
+    return derivative_dtw(gesturePts, summaryPts, window=window).cost
 
 
-def wdtwDistance(gesture, summaryShape, penalty_g=DEFAULT_WARPING_PENALTY):
+def wdtwDistance(gesture, summaryShape, penalty_g=DEFAULT_WARPING_PENALTY, window=None):
     """Weighted DTW penalizes alignments with larger phase offsets.
 
     Source: Jeong et al., "Weighted dynamic time warping for time series
@@ -228,10 +228,10 @@ def wdtwDistance(gesture, summaryShape, penalty_g=DEFAULT_WARPING_PENALTY):
     """
 
     gesturePts, summaryPts = _dtwComparisonPoints(gesture, summaryShape)
-    return weighted_dtw(gesturePts, summaryPts, penalty_g=penalty_g).cost
+    return weighted_dtw(gesturePts, summaryPts, penalty_g=penalty_g, window=window).cost
 
 
-def wddtwDistance(gesture, summaryShape, penalty_g=DEFAULT_WARPING_PENALTY):
+def wddtwDistance(gesture, summaryShape, penalty_g=DEFAULT_WARPING_PENALTY, window=None):
     """Weighted derivative DTW combines slope-based matching and phase penalties.
 
     Source: Jeong et al., "Weighted dynamic time warping for time series
@@ -242,7 +242,12 @@ def wddtwDistance(gesture, summaryShape, penalty_g=DEFAULT_WARPING_PENALTY):
     """
 
     gesturePts, summaryPts = _dtwComparisonPoints(gesture, summaryShape)
-    return weighted_derivative_dtw(gesturePts, summaryPts, penalty_g=penalty_g).cost
+    return weighted_derivative_dtw(
+        gesturePts,
+        summaryPts,
+        penalty_g=penalty_g,
+        window=window,
+    ).cost
 
 
 def mean(arr):
