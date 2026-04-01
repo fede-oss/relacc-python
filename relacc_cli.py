@@ -7,10 +7,14 @@ import statistics
 from typing import Dict, List
 
 from relacc.geom.pointset import PointSet
+from relacc.dtw import (
+    DEFAULT_EXACT_RATE_THRESHOLD,
+    recommended_window as recommended_dtw_window,
+)
 from relacc.gestures.gesture import Gesture
 from relacc.gestures.ptaligntype import PtAlignType
 from relacc.gestures.summarygesture import SummaryGesture
-from relacc.metrics import METRIC_NAMES, compute_metrics
+from relacc.metrics import get_metric_names, compute_metrics
 from relacc.utils.args import Args
 from relacc.utils.csv import CSVUtil
 from relacc.utils.date import DateUtil
@@ -36,7 +40,13 @@ def getStats(arr):
     sd = 0
     minimum = 0
     maximum = 0
-    if n > 0:
+    if arr and any(not math.isfinite(value) for value in arr):
+        mean = float("nan")
+        mdn = float("nan")
+        sd = float("nan")
+        minimum = float("nan")
+        maximum = float("nan")
+    elif n > 0:
         mean = statistics.fmean(arr)
         mdn = statistics.median(arr)
         sd = statistics.stdev(arr) if n > 1 else 0
@@ -53,9 +63,30 @@ def getStats(arr):
     }
 
 
+def _resolve_dtw_window(rate, exact_dtw, requested_window):
+    if exact_dtw:
+        return None
+    if requested_window is not None:
+        return requested_window
+    if rate <= DEFAULT_EXACT_RATE_THRESHOLD:
+        return None
+    return recommended_dtw_window(rate)
+
+
+def _json_safe(value):
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    return value
+
+
 def toJSON(obj, defaults):
     meta = {"date": DateUtil.utc(), "time": DateUtil.now(), "args": defaults}
-    return json.dumps({"metadata": meta, "results": obj})
+    payload = {"metadata": meta, "results": _json_safe(obj)}
+    return json.dumps(payload, allow_nan=False)
 
 
 def toCSV(obj):
@@ -115,11 +146,16 @@ def evaluate(collection, label, rate, argParser, defaults, output, fmt, debug):
     summaryShape = argParser.get("summary", defaults["summary"])
     popularShape = argParser.get("popular", defaults["popular"])
     displayStats = argParser.get("stats", defaults["stats"], _bool_cast)
+    exactDtw = argParser.get("exact_dtw", defaults["exact_dtw"], _bool_cast)
+    requestedDtwWindow = argParser.get("dtw_window", defaults["dtw_window"], _int_cast)
+    dtwWindow = _resolve_dtw_window(rate, exactDtw, requestedDtwWindow)
 
     defaults["alignment"] = alignmentType
     defaults["summary"] = summaryShape
     defaults["popular"] = popularShape
     defaults["stats"] = displayStats
+    defaults["exact_dtw"] = exactDtw
+    defaults["dtw_window"] = dtwWindow
 
     gestures = []
     files = list(collection.keys())
@@ -128,14 +164,20 @@ def evaluate(collection, label, rate, argParser, defaults, output, fmt, debug):
         gestures.append(Gesture(points, label, rate))
 
     taskAxis = SummaryGesture(gestures, alignmentType, summaryShape, popularShape)
-    metric_values = {name: [] for name in METRIC_NAMES}
+    metric_names = get_metric_names()
+    metric_values = {name: [] for name in metric_names}
     for gesture in gestures:
-        values = compute_metrics(gesture, taskAxis)
+        values = compute_metrics(
+            gesture,
+            taskAxis,
+            metric_names=metric_names,
+            dtw_window=dtwWindow,
+        )
         for name, value in values.items():
             metric_values[name].append(value)
 
     if displayStats:
-        stats = {name: getStats(metric_values[name]) for name in METRIC_NAMES}
+        stats = {name: getStats(metric_values[name]) for name in metric_names}
         if fmt == "json":
             res = toJSON(stats, defaults)
         elif fmt == "csv":
@@ -148,9 +190,9 @@ def evaluate(collection, label, rate, argParser, defaults, output, fmt, debug):
             )
         displayResults(res, output, debug)
     else:
-        print("file", *METRIC_NAMES)
+        print("file", *metric_names)
         for i in range(len(files)):
-            rounded_values = [MathUtil.roundTo(metric_values[name][i]) for name in METRIC_NAMES]
+            rounded_values = [MathUtil.roundTo(metric_values[name][i]) for name in metric_names]
             print(files[i], *rounded_values)
 
 
@@ -164,6 +206,8 @@ def build_parser():
     parser.add_argument("-s", "--stats", action="store_true")
     parser.add_argument("-o", "--output")
     parser.add_argument("-f", "--format")
+    parser.add_argument("--exact-dtw", action="store_true")
+    parser.add_argument("--dtw-window")
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("-h", "--help", action="store_true")
     parser.add_argument("files", nargs="*")
@@ -191,6 +235,8 @@ def main(argv=None):
         "stats": False,
         "output": None,
         "format": "json",
+        "exact_dtw": False,
+        "dtw_window": None,
     }
 
     files = opt.files
@@ -201,15 +247,21 @@ def main(argv=None):
     rate = int(rate) if rate not in (None, "") else None
 
     output = argParser.get("output")
+    dtw_window = argParser.get("dtw_window", defaults["dtw_window"], _int_cast)
     if output:
         fmt = os.path.splitext(output)[1][1:].lower()
     else:
         fmt = (argParser.get("format", defaults["format"]) or defaults["format"]).lower()
 
+    if dtw_window is not None and args.get("exact_dtw"):
+        raise ValueError("--dtw-window cannot be combined with --exact-dtw.")
+
     defaults["label"] = label
     defaults["rate"] = rate
     defaults["output"] = output
     defaults["format"] = fmt
+    defaults["exact_dtw"] = bool(args.get("exact_dtw"))
+    defaults["dtw_window"] = dtw_window
 
     if not nfiles:
         parser.print_help()

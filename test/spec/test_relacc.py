@@ -86,6 +86,64 @@ def test_articulation_metrics():
     assert RelAcc.strokeOrderError(gesture, summaryShape) > 0
 
 
+def test_dtw_family_metrics():
+    _, _, _, gesture, summaryShape = _fixture_shapes()
+    assert RelAcc.dtwDistance(gesture, summaryShape) == pytest.approx(2.0)
+    assert RelAcc.ldtwDistance(gesture, summaryShape) == pytest.approx(2.0 / 3.0)
+    assert RelAcc.ddtwDistance(gesture, summaryShape) == pytest.approx(3.25)
+    assert RelAcc.wdtwDistance(gesture, summaryShape) < RelAcc.dtwDistance(gesture, summaryShape)
+    assert RelAcc.wddtwDistance(gesture, summaryShape) < RelAcc.ddtwDistance(gesture, summaryShape)
+
+
+def test_weighted_dtw_metric_wrappers_accept_custom_penalty():
+    _, _, _, gesture, summaryShape = _fixture_shapes()
+
+    weak_penalty = RelAcc.wdtwDistance(gesture, summaryShape, penalty_g=0.05)
+    strong_penalty = RelAcc.wdtwDistance(gesture, summaryShape, penalty_g=1.0)
+    weak_derivative = RelAcc.wddtwDistance(gesture, summaryShape, penalty_g=0.05)
+    strong_derivative = RelAcc.wddtwDistance(gesture, summaryShape, penalty_g=1.0)
+
+    assert weak_penalty != pytest.approx(strong_penalty)
+    assert weak_derivative != pytest.approx(strong_derivative)
+
+
+def test_weighted_dtw_metric_wrappers_reject_negative_penalty():
+    _, _, _, gesture, summaryShape = _fixture_shapes()
+
+    with pytest.raises(ValueError, match="penalty_g must be >= 0\\."):
+        RelAcc.wdtwDistance(gesture, summaryShape, penalty_g=-0.1)
+
+    with pytest.raises(ValueError, match="penalty_g must be >= 0\\."):
+        RelAcc.wddtwDistance(gesture, summaryShape, penalty_g=-0.1)
+
+
+def test_dtw_family_metrics_ignore_summary_alignment_type():
+    summaryPts = [p(0, 0, 0, 0), p(10, 0, 10, 0)]
+    chronoPts = [p(0, 0, 0, 0), p(20, 0, 10, 0)]
+    cloudPts = [p(0, 0, 0, 0), p(10, 0, 10, 0)]
+    gesture = type("GestureObj", (), {"points": chronoPts})()
+
+    class SummaryShape:
+        points = summaryPts
+        alignmentType = PtAlignType.CLOUD_MATCH
+
+        @staticmethod
+        def getPoints():
+            return summaryPts
+
+        @staticmethod
+        def alignGesture(_, alignmentType=None):
+            if alignmentType == PtAlignType.CLOUD_MATCH:
+                return cloudPts
+            return chronoPts
+
+    summaryShape = SummaryShape()
+    assert summaryShape.alignGesture(gesture, summaryShape.alignmentType) == cloudPts
+    assert summaryShape.alignGesture(gesture, PtAlignType.CHRONOLOGICAL) == chronoPts
+    assert RelAcc.dtwDistance(gesture, summaryShape) == 10
+    assert RelAcc.ldtwDistance(gesture, summaryShape) == 5
+
+
 def test_mean_stdev_edge_cases():
     with pytest.raises(ValueError, match="Input set cannot be empty\\."):
         RelAcc.mean([])
@@ -106,3 +164,8 @@ def test_snake_case_aliases_match_original_api():
     assert RelAcc.length_error(gesture, summaryShape) == RelAcc.lengthError(gesture, summaryShape)
     assert RelAcc.stroke_order_error(gesture, summaryShape) == RelAcc.strokeOrderError(gesture, summaryShape)
     assert RelAcc.num_strokes(gesture) == RelAcc.numStrokes(gesture)
+    assert RelAcc.dtw_distance(gesture, summaryShape) == RelAcc.dtwDistance(gesture, summaryShape)
+    assert RelAcc.ldtw_distance(gesture, summaryShape) == RelAcc.ldtwDistance(gesture, summaryShape)
+    assert RelAcc.ddtw_distance(gesture, summaryShape) == RelAcc.ddtwDistance(gesture, summaryShape)
+    assert RelAcc.wdtw_distance(gesture, summaryShape) == RelAcc.wdtwDistance(gesture, summaryShape)
+    assert RelAcc.wddtw_distance(gesture, summaryShape) == RelAcc.wddtwDistance(gesture, summaryShape)

@@ -1,4 +1,6 @@
 import gzip
+import io
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -81,6 +83,73 @@ def test_csv_parse_gzip_text(tmp_path):
 
     assert len(points) == 2
     assert points[0].X == 10.0
+    assert points[1].T == 10.0
+
+
+def test_csv_parse_gzip_tar_payload_with_csv_extension(tmp_path):
+    payload_file = Path(tmp_path) / "gesture.csv"
+    rows = [
+        "stroke_id\t x\t y\t time\t is_writing",
+        "1.000000 \t 50.0 \t 88.0 \t 0.0 \t 1.0",
+        "1.000000 \t 50.5 \t 88.5 \t 10.0 \t 1.0",
+        "2.000000 \t 51.0 \t 89.0 \t 20.0 \t 1.0",
+    ]
+    csv_bytes = "\n".join(rows).encode("utf-8")
+
+    tar_buffer = io.BytesIO()
+    with tarfile.open(fileobj=tar_buffer, mode="w") as archive:
+        info = tarfile.TarInfo(name="inner/gesture.csv")
+        info.size = len(csv_bytes)
+        archive.addfile(info, io.BytesIO(csv_bytes))
+
+    payload_file.write_bytes(gzip.compress(tar_buffer.getvalue()))
+
+    out = {}
+
+    def cb(points):
+        out["points"] = points
+
+    CSVUtil.readGesture(str(payload_file), cb)
+    points = out["points"]
+
+    assert len(points) == 3
+    assert points[0].StrokeID == 1
+    assert points[1].T == 10.0
+    assert points[2].StrokeID == 2
+
+
+def test_csv_parse_gzip_tar_skips_non_csv_members(tmp_path):
+    payload_file = Path(tmp_path) / "gesture.csv"
+    csv_rows = [
+        "stroke_id x y time is_writing",
+        "1 50 88 0 1",
+        "1 51 89 10 1",
+    ]
+    csv_bytes = "\n".join(csv_rows).encode("utf-8")
+
+    tar_buffer = io.BytesIO()
+    with tarfile.open(fileobj=tar_buffer, mode="w") as archive:
+        readme_bytes = b"not,a,gesture\nhello\n"
+        readme = tarfile.TarInfo(name="README.txt")
+        readme.size = len(readme_bytes)
+        archive.addfile(readme, io.BytesIO(readme_bytes))
+
+        gesture = tarfile.TarInfo(name="inner/gesture.csv")
+        gesture.size = len(csv_bytes)
+        archive.addfile(gesture, io.BytesIO(csv_bytes))
+
+    payload_file.write_bytes(gzip.compress(tar_buffer.getvalue()))
+
+    out = {}
+
+    def cb(points):
+        out["points"] = points
+
+    CSVUtil.readGesture(str(payload_file), cb)
+    points = out["points"]
+
+    assert len(points) == 2
+    assert points[0].StrokeID == 1
     assert points[1].T == 10.0
 
 

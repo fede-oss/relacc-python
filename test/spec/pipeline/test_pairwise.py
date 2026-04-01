@@ -164,6 +164,7 @@ def test_compute_compare_and_run_pairwise(tmp_path):
     assert row["pairKey"] == "pair-1"
     assert row["label"] == "pair-1"
     assert row["rate"] == 8
+    assert row["dtwWindow"] is None
     assert row["summary"] == "centroid"
     for metric_name in Pairwise.METRIC_NAMES:
         assert metric_name in row
@@ -194,9 +195,12 @@ def test_compute_compare_and_run_pairwise(tmp_path):
     assert payload["metadata"]["rate"] == 7
     assert payload["metadata"]["label"] == "gesture"
     assert payload["metadata"]["roundPrecision"] == 2
+    assert payload["metadata"]["exactDtw"] is False
+    assert payload["metadata"]["dtwWindow"] is None
     assert payload["pairs"][0]["label"] == "gesture"
     assert payload["pairs"][0]["mode"] == "direct"
     assert payload["pairs"][0]["referenceCount"] == 1
+    assert payload["pairs"][0]["dtwWindow"] is None
 
 
 def test_run_pairwise_summary_mode_compares_all_candidates(tmp_path):
@@ -245,6 +249,40 @@ def test_run_pairwise_summary_mode_auto_rate_uses_reference_only(tmp_path):
 
     assert payload["metadata"]["comparisonMode"] == "summary"
     assert payload["pairs"][0]["rate"] == 24
+    assert payload["pairs"][0]["dtwWindow"] is None
+
+
+def test_run_pairwise_exact_dtw_disables_window(tmp_path):
+    ref = tmp_path / "ref.csv"
+    cand = tmp_path / "cand.csv"
+    _write_csv(ref, _sample_rows())
+    _write_csv(cand, _sample_rows(1))
+
+    payload = Pairwise.run_pairwise_comparison(
+        str(ref),
+        str(cand),
+        exact_dtw=True,
+    )
+
+    assert payload["metadata"]["exactDtw"] is True
+    assert payload["metadata"]["dtwWindow"] is None
+    assert payload["pairs"][0]["dtwWindow"] is None
+
+
+def test_run_pairwise_auto_window_applies_for_large_rates(tmp_path):
+    ref = tmp_path / "ref.csv"
+    cand = tmp_path / "cand.csv"
+    _write_csv(ref, _sample_rows())
+    _write_csv(cand, _sample_rows(1))
+
+    payload = Pairwise.run_pairwise_comparison(
+        str(ref),
+        str(cand),
+        rate=720,
+    )
+
+    assert payload["metadata"]["dtwWindow"] == 64
+    assert payload["pairs"][0]["dtwWindow"] == 64
 
 
 def test_run_pairwise_invalid_mode_and_summary_validation(tmp_path):

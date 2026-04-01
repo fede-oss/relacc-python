@@ -60,9 +60,72 @@ def test_main_pairwise_json_stdout_single_pair(tmp_path):
     payload = json.loads(res.stdout)
     assert payload["metadata"]["comparisonMode"] == "direct"
     assert payload["metadata"]["pairCount"] == 1
+    assert payload["metadata"]["exactDtw"] is False
+    assert payload["metadata"]["dtwWindow"] is None
     assert payload["pairs"][0]["rate"] == 5
     assert payload["pairs"][0]["mode"] == "direct"
+    assert payload["pairs"][0]["dtwWindow"] is None
     assert "shapeError" in payload["pairs"][0]
+    assert "dtwDistance" in payload["pairs"][0]
+
+
+def test_main_pairwise_json_stdout_with_exact_dtw(tmp_path):
+    ref = tmp_path / "ref.csv"
+    cand = tmp_path / "cand.csv"
+    _write_csv(ref, _sample_rows(0))
+    _write_csv(cand, _sample_rows(1))
+
+    res = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "main-pairwise.py"),
+            "-f",
+            "json",
+            "-r",
+            "5",
+            "--exact-dtw",
+            str(ref),
+            str(cand),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(res.stdout)
+    assert payload["metadata"]["exactDtw"] is True
+    assert payload["metadata"]["dtwWindow"] is None
+    assert payload["pairs"][0]["dtwWindow"] is None
+    assert "dtwDistance" in payload["pairs"][0]
+
+
+def test_main_pairwise_auto_switches_to_window_for_large_rate(tmp_path):
+    ref = tmp_path / "ref.csv"
+    cand = tmp_path / "cand.csv"
+    _write_csv(ref, _sample_rows(0))
+    _write_csv(cand, _sample_rows(1))
+
+    res = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "main-pairwise.py"),
+            "-f",
+            "json",
+            "-r",
+            "720",
+            str(ref),
+            str(cand),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(res.stdout)
+    assert payload["metadata"]["dtwWindow"] == 64
+    assert payload["pairs"][0]["dtwWindow"] == 64
 
 
 def test_main_pairwise_alignment_zero_is_accepted(tmp_path):
@@ -257,3 +320,29 @@ def test_main_pairwise_invalid_summary_fails(tmp_path):
 
     assert res.returncode != 0
     assert "Invalid summary shape" in res.stderr
+
+
+def test_main_pairwise_rejects_dtw_window_with_exact_dtw(tmp_path):
+    ref = tmp_path / "ref.csv"
+    cand = tmp_path / "cand.csv"
+    _write_csv(ref, _sample_rows(0))
+    _write_csv(cand, _sample_rows(1))
+
+    res = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "main-pairwise.py"),
+            "--exact-dtw",
+            "--dtw-window",
+            "2",
+            str(ref),
+            str(cand),
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert res.returncode != 0
+    assert "--dtw-window cannot be combined with --exact-dtw" in res.stderr
