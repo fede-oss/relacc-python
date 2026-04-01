@@ -4,6 +4,7 @@ import json
 import os
 
 from relacc.gestures.ptaligntype import PtAlignType
+from relacc.metrics import get_metric_names
 from relacc.pipeline.pairwise import (
     COMPARISON_MODES,
     DIRECT_MODE,
@@ -35,6 +36,8 @@ def build_parser():
     parser.add_argument("-f", "--format")
     parser.add_argument("-o", "--output")
     parser.add_argument("--round")
+    parser.add_argument("--exact-dtw", action="store_true")
+    parser.add_argument("--dtw-window")
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("-h", "--help", action="store_true")
     return parser
@@ -80,6 +83,12 @@ def main(argv=None):
     alignment = PtAlignType.CHRONOLOGICAL if parsed_alignment is None else parsed_alignment
     parsed_round = _int_cast(opt.round)
     round_precision = 3 if parsed_round is None else parsed_round
+    dtw_window = _int_cast(opt.dtw_window)
+
+    if dtw_window is not None and opt.exact_dtw:
+        raise ValueError("--dtw-window cannot be combined with --exact-dtw.")
+
+    metric_names = get_metric_names()
 
     payload = run_pairwise_comparison(
         opt.reference,
@@ -92,12 +101,15 @@ def main(argv=None):
         strict=opt.strict,
         round_precision=round_precision,
         comparison_mode=opt.mode,
+        metric_names=metric_names,
+        dtw_window=dtw_window,
+        exact_dtw=bool(opt.exact_dtw),
     )
 
     if fmt == "json":
         result = json.dumps(payload)
     else:
-        result = format_pair_rows_csv(payload["pairs"])
+        result = format_pair_rows_csv(payload["pairs"], metric_names=metric_names)
 
     _display_result(result, opt.output, debug)
 

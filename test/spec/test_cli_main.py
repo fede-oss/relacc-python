@@ -53,7 +53,68 @@ def test_main_json_stats_output(tmp_path):
     assert "metadata" in payload
     assert "results" in payload
     assert "shapeError" in payload["results"]
+    assert payload["metadata"]["args"]["exact_dtw"] is False
+    assert payload["metadata"]["args"]["dtw_window"] is None
     assert "dtwDistance" in payload["results"]
+
+
+def test_main_json_stats_output_with_exact_dtw(tmp_path):
+    f1 = tmp_path / "s1-arrow-t1.csv"
+    f2 = tmp_path / "s1-arrow-t2.csv"
+    _write_csv(f1, _sample_rows(0))
+    _write_csv(f2, _sample_rows(1))
+
+    res = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "main.py"),
+            "-s",
+            "-f",
+            "json",
+            "-r",
+            "3",
+            "--exact-dtw",
+            str(f1),
+            str(f2),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(res.stdout)
+    assert payload["metadata"]["args"]["exact_dtw"] is True
+    assert payload["metadata"]["args"]["dtw_window"] is None
+    assert "dtwDistance" in payload["results"]
+
+
+def test_main_json_stats_output_auto_switches_to_window_for_large_rate(tmp_path):
+    f1 = tmp_path / "s1-arrow-t1.csv"
+    f2 = tmp_path / "s1-arrow-t2.csv"
+    _write_csv(f1, _sample_rows(0))
+    _write_csv(f2, _sample_rows(1))
+
+    res = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "main.py"),
+            "-s",
+            "-f",
+            "json",
+            "-r",
+            "720",
+            str(f1),
+            str(f2),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(res.stdout)
+    assert payload["metadata"]["args"]["dtw_window"] == 64
 
 
 def test_main_csv_and_xml_file_output(tmp_path):
@@ -142,3 +203,26 @@ def test_to_json_encodes_all_non_finite_stats_as_null():
         "max": None,
         "n": 0,
     }
+
+
+def test_main_rejects_dtw_window_with_exact_dtw(tmp_path):
+    f1 = tmp_path / "s1-arrow-t1.csv"
+    _write_csv(f1, _sample_rows(0))
+
+    res = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "main.py"),
+            "--exact-dtw",
+            "--dtw-window",
+            "3",
+            str(f1),
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert res.returncode != 0
+    assert "--dtw-window cannot be combined with --exact-dtw" in res.stderr
