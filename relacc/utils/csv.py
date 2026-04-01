@@ -11,6 +11,8 @@ from relacc.geom.point import Point
 class CSVUtil:
     """Process CSV gesture files."""
 
+    REQUIRED_HEADERS = ("stroke_id", "x", "y", "time")
+
     @staticmethod
     def readGesture(file, callback):
         points = []
@@ -30,9 +32,8 @@ class CSVUtil:
 
             delim = CSVUtil._detect_delimiter(header)
             headers = CSVUtil._split_fields(header, delim)
-            index = {name.strip().lower(): i for i, name in enumerate(headers)}
-            required = ["stroke_id", "x", "y", "time"]
-            if any(name not in index for name in required):
+            index = CSVUtil._header_index(headers)
+            if index is None:
                 raise ValueError("Invalid CSV header. Expected fields: stroke_id x y time is_writing")
 
             for line in fh:
@@ -79,19 +80,21 @@ class CSVUtil:
         except tarfile.ReadError:
             return stack.enter_context(gzip.open(file, "rt", encoding="utf-8", errors="replace"))
 
-        for member in archive:
-            if not member.isfile():
-                continue
+        members = [member for member in archive if member.isfile()]
+        csv_members = [member for member in members if member.name.lower().endswith(".csv")]
+        candidates = csv_members + [member for member in members if member not in csv_members]
 
+        for member in candidates:
             payload = archive.extractfile(member)
             if payload is None:
                 continue
 
             buffer = stack.enter_context(payload)
-            text_stream = io.TextIOWrapper(buffer, encoding="utf-8", errors="replace")
-            return stack.enter_context(text_stream)
+            text = buffer.read().decode("utf-8", errors="replace")
+            if member.name.lower().endswith(".csv") or CSVUtil._header_index_from_text(text) is not None:
+                return stack.enter_context(io.StringIO(text))
 
-        return stack.enter_context(gzip.open(file, "rt", encoding="utf-8", errors="replace"))
+        raise ValueError("No CSV file found in gzip tar payload.")
 
     @staticmethod
     def _detect_delimiter(header):
@@ -104,6 +107,25 @@ class CSVUtil:
         if delim == ",":
             return [field.strip() for field in line.split(",")]
         return re.split(r"\s+", line.strip())
+
+    @staticmethod
+    def _header_index(headers):
+        index = {name.strip().lower(): i for i, name in enumerate(headers)}
+        if any(name not in index for name in CSVUtil.REQUIRED_HEADERS):
+            return None
+        return index
+
+    @staticmethod
+    def _header_index_from_text(text):
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            header = line.lstrip("\ufeff")
+            delim = CSVUtil._detect_delimiter(header)
+            headers = CSVUtil._split_fields(header, delim)
+            return CSVUtil._header_index(headers)
+        return None
 
     @staticmethod
     def _parse_number(value):

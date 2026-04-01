@@ -168,16 +168,14 @@ def test_main_csv_and_xml_file_output(tmp_path):
     assert out_xml.read_text(encoding="utf-8").startswith("<?xml")
 
 
-def test_get_stats_ignores_non_finite_values_when_possible():
+def test_get_stats_returns_nan_when_any_values_are_non_finite():
     stats = relacc_cli.getStats([1.0, float("nan"), 3.0, float("inf")])
-    assert stats == {
-        "mean": 2.0,
-        "mdn": 2.0,
-        "sd": pytest.approx(1.414, abs=1e-3),
-        "min": 1.0,
-        "max": 3.0,
-        "n": 2,
-    }
+    assert math.isnan(stats["mean"])
+    assert math.isnan(stats["mdn"])
+    assert math.isnan(stats["sd"])
+    assert math.isnan(stats["min"])
+    assert math.isnan(stats["max"])
+    assert stats["n"] == 4
 
 
 def test_get_stats_returns_nan_when_all_values_are_non_finite():
@@ -187,7 +185,7 @@ def test_get_stats_returns_nan_when_all_values_are_non_finite():
     assert math.isnan(stats["sd"])
     assert math.isnan(stats["min"])
     assert math.isnan(stats["max"])
-    assert stats["n"] == 0
+    assert stats["n"] == 2
 
 
 def test_to_json_encodes_all_non_finite_stats_as_null():
@@ -201,7 +199,53 @@ def test_to_json_encodes_all_non_finite_stats_as_null():
         "sd": None,
         "min": None,
         "max": None,
-        "n": 0,
+        "n": 2,
+    }
+
+
+def test_main_json_stats_surface_non_finite_metrics(tmp_path):
+    valid = tmp_path / "s1-arrow-t1.csv"
+    invalid = tmp_path / "s1-arrow-t2.csv"
+    _write_csv(valid, _sample_rows(0))
+    invalid.write_text(
+        "\n".join(
+            [
+                "stroke_id x y time is_writing",
+                "0 10 20 -1 1",
+                "0 12 22 -2 1",
+                "1 14 24 -3 1",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    res = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "main.py"),
+            "-s",
+            "-f",
+            "json",
+            str(valid),
+            str(invalid),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(res.stdout)
+
+    assert payload["results"]["shapeError"]["n"] == 2
+    assert payload["results"]["shapeError"]["mean"] == 0.0
+    assert payload["results"]["timeError"] == {
+        "mean": None,
+        "mdn": None,
+        "sd": None,
+        "min": None,
+        "max": None,
+        "n": 2,
     }
 
 
