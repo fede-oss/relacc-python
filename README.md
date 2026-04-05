@@ -6,6 +6,7 @@ This repository contains a Python port of the Gesture Relative Accuracy Toolkit 
 
 - Python 3.11+
 - `matplotlib` (for canvas rendering CLI)
+- `scipy` (for distribution-comparison metrics)
 
 ## Installation
 
@@ -200,16 +201,76 @@ Key flags:
 
 ---
 
+### `relacc-distribution` — class-aware distribution comparison
+
+`relacc-distribution` compares **metric distributions** instead of individual pairs.
+
+V1 workflow:
+
+- Group samples by class.
+- Build a **human-human baseline** distribution inside each class from unordered reference-reference pairs.
+- Build a **generated-human** distribution inside each class from all reference-candidate pairs.
+- Compare the two scalar distributions for every gesture metric, then pool an overall summary across valid classes.
+
+Grouping modes:
+
+- `--group-by filename-label` (default): derive the class from the second `-`-separated filename segment.
+  - Example: `s01-arrow-01.csv` and `g03-arrow-02.csv` are both grouped as `arrow`.
+- `--group-by parent-dir`: derive the class from the file's relative parent directory.
+  - Example: `arrow/sample-1.csv` and `arrow/sample-2.csv` are grouped as `arrow`.
+
+A class is considered valid when it has:
+
+- at least 2 reference CSVs
+- at least 1 candidate CSV
+
+Output shape:
+
+- JSON: `metadata` plus `results.perClass` and `results.overall`
+- CSV: one flattened row per `scope x gestureMetric`
+
+Examples:
+
+```bash
+# Default grouping by filename label
+relacc-distribution references/ generated/ -f json
+
+# Group by directory structure instead of filename label
+relacc-distribution --group-by parent-dir references/ generated/ -o /tmp/distribution.csv
+```
+
+Key flags:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--group-by` | `filename-label` | Class grouping mode: `filename-label` or `parent-dir` |
+| `-m, --summary` | *(first reference gesture)* | Summary strategy reused from pairwise comparison |
+| `-p, --popular` | off | Filter to most common stroke count when building the per-reference summary |
+| `-r, --rate` | auto | Resampling rate; auto-estimated from reference samples only |
+| `-a, --alignment` | `0` | Point alignment: `0` chronological, `1` cloud-match |
+| `--round` | `3` | Decimal precision in output metrics |
+| `-f, --format` | `json` | Output format: `json`, `csv` |
+| `-o, --output` | *(stdout)* | Write output to file |
+
+Current example/placeholder 'distribution metrics:
+
+- `wassersteinDistance`
+- `energyDistance`
+- `ksStatistic`
+- `ksPValue`
+
+---
+
 ### Other commands
 
-- Legacy entry points: `python3 main.py`, `python3 main-canvas.py`, `python3 main-pairwise.py`.
+- Legacy entry points: `python3 main.py`, `python3 main-canvas.py`, `python3 main-pairwise.py`, `python3 main-distribution.py`.
 
 ## Add a new metric
 
 There are two metric families:
 
 - Gesture metrics (`relacc/metrics.py`): used by both `relacc` and `relacc-pairwise`.
-- Distribution metrics (`relacc/distribution_metrics.py`): distribution metrics scaffold
+- Distribution metrics (`relacc/distribution_metrics.py`): used by `relacc-distribution`
 
 ### 1) Add a gesture metric (shared by `relacc` and `relacc-pairwise`)
 
