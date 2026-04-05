@@ -1,6 +1,9 @@
 import gzip
 import math
 import re
+import tarfile
+from contextlib import ExitStack
+from io import TextIOWrapper
 
 from relacc.geom.point import Point
 
@@ -57,11 +60,28 @@ class CSVUtil:
 
     @staticmethod
     def _open_text_auto(file):
-        with open(file, "rb") as probe:
-            signature = probe.read(2)
-        if signature == b"\x1f\x8b":
-            return gzip.open(file, "rt", encoding="utf-8", errors="replace")
-        return open(file, "r", encoding="utf-8", errors="replace")
+        stack = ExitStack()
+        try:
+            if tarfile.is_tarfile(file):
+                archive = stack.enter_context(tarfile.open(file, "r:*"))
+                for member in archive.getmembers():
+                    if member.isfile():
+                        extracted = archive.extractfile(member)
+                        if extracted is None:
+                            continue
+                        return stack.enter_context(TextIOWrapper(extracted, encoding="utf-8", errors="replace"))
+                raise ValueError("No regular file entries found in archive: %s" % file)
+
+            with open(file, "rb") as probe:
+                signature = probe.read(2)
+            if signature == b"\x1f\x8b":
+                return stack.enter_context(
+                    gzip.open(file, "rt", encoding="utf-8", errors="replace")
+                )
+            return stack.enter_context(open(file, "r", encoding="utf-8", errors="replace"))
+        except Exception:
+            stack.close()
+            raise
 
     @staticmethod
     def _detect_delimiter(header):

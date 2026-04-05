@@ -1,4 +1,5 @@
 import gzip
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -82,6 +83,68 @@ def test_csv_parse_gzip_text(tmp_path):
     assert len(points) == 2
     assert points[0].X == 10.0
     assert points[1].T == 10.0
+
+
+def test_csv_parse_tar_gz_with_single_csv_member(tmp_path):
+    inner_csv = "stroke_id\t x\t y\t time\t is_writing\n0\t10\t20\t0\t1\n0\t11\t21\t10\t1\n"
+    archive_path = Path(tmp_path) / "gesture.csv"
+
+    with tarfile.open(archive_path, "w:gz") as archive:
+        payload = inner_csv.encode("utf-8")
+        info = tarfile.TarInfo(name="nested/gesture.csv")
+        info.size = len(payload)
+        archive.addfile(info, fileobj=__import__("io").BytesIO(payload))
+
+    out = {}
+
+    def cb(points):
+        out["points"] = points
+
+    CSVUtil.readGesture(str(archive_path), cb)
+    points = out["points"]
+
+    assert len(points) == 2
+    assert points[0].X == 10.0
+    assert points[1].T == 10.0
+
+
+def test_csv_archive_without_regular_files_raises(tmp_path):
+    archive_path = Path(tmp_path) / "empty-archive.csv"
+
+    with tarfile.open(archive_path, "w:gz") as archive:
+        info = tarfile.TarInfo(name="nested/")
+        info.type = tarfile.DIRTYPE
+        archive.addfile(info)
+
+    with pytest.raises(ValueError, match="No regular file entries found in archive"):
+        with CSVUtil._open_text_auto(str(archive_path)):
+            pass
+
+
+def test_csv_archive_skips_empty_extract_and_raises(monkeypatch):
+    class FakeMember:
+        def isfile(self):
+            return True
+
+    class FakeArchive:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def getmembers(self):
+            return [FakeMember()]
+
+        def extractfile(self, _member):
+            return None
+
+    monkeypatch.setattr(tarfile, "is_tarfile", lambda _file: True)
+    monkeypatch.setattr(tarfile, "open", lambda *_args, **_kwargs: FakeArchive())
+
+    with pytest.raises(ValueError, match="No regular file entries found in archive"):
+        with CSVUtil._open_text_auto("dummy.csv"):
+            pass
 
 
 def test_csv_empty_file_returns_empty_points(tmp_path):
