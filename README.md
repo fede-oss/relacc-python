@@ -53,7 +53,9 @@ The metrics cover:
 Lower values always mean closer to the reference. Passing a single CSV produces all zeros (reference = the file itself).
 
 The DTW-family metrics are computed on the chronological point sequences after the same resampling and translation steps used elsewhere in the toolkit.
+The Python API uses the exact DTW dynamic program, so runtime is quadratic in the resampled point count.
 For the weighted variants, the logistic phase-penalty slope defaults to `0.25` (`penalty_g`) and can be overridden from the Python API when stricter or looser off-diagonal penalties are needed.
+On the CLI, the DTW-family metrics are included by default. Smaller resampling rates stay exact; larger resampling rates automatically switch to a Sakoe-Chiba-style band for faster approximate runs. Use `--exact-dtw` to force exact DTW, or `--dtw-window N` to choose your own window radius.
 
 ---
 
@@ -108,6 +110,14 @@ relacc -s -m kmedoid -r 32 -f csv \
 # Cloud-match alignment (stroke-order agnostic), XML output
 relacc -s -m centroid -r 32 -a 1 -f xml \
   datasets/becaptcha/1dollar/s01-arrow-fast-*.csv
+
+# Use a custom DTW band of 8 points for faster approximate DTW
+relacc -s -m centroid -r 32 --dtw-window 8 -f json \
+  datasets/becaptcha/1dollar/s01-arrow-fast-*.csv
+
+# Disable the DTW band and run exact DTW
+relacc -s -m centroid -r 32 --exact-dtw -f json \
+  datasets/becaptcha/1dollar/s01-arrow-fast-*.csv
 ```
 
 **Flags:**
@@ -121,6 +131,8 @@ relacc -s -m centroid -r 32 -a 1 -f xml \
 | `-s, --stats` | off | Output aggregate stats instead of per-file rows |
 | `-f, --format` | `json` | Output format: `json`, `csv`, `xml` |
 | `-o, --output` | *(stdout)* | Write output to file (format inferred from extension) |
+| `--dtw-window` | auto for larger rates | Optional Sakoe-Chiba band radius for faster approximate DTW runs |
+| `--exact-dtw` | off | Force exact DTW-family metrics even at larger resampling rates |
 | `-l, --label` | *(from filename)* | Gesture label — inferred from the second `-`-separated segment of the first filename if omitted |
 | `-v, --verbose` | off | Debug logging |
 
@@ -183,6 +195,14 @@ relacc-pairwise references/ candidates/ -f csv -o /tmp/direct.csv
 
 # Candidate-vs-summary-reference (multiple references -> one summary)
 relacc-pairwise --mode summary -m centroid references/ generated/ -f json
+
+# Same, but use a custom DTW band of 8 points
+relacc-pairwise --mode summary -m centroid --dtw-window 8 \
+  references/ generated/ -f json
+
+# Or disable the band and run exact DTW
+relacc-pairwise --mode summary -m centroid --exact-dtw \
+  references/ generated/ -f json
 ```
 
 Key flags:
@@ -198,6 +218,8 @@ Key flags:
 | `--round` | `3` | Decimal precision in output metrics |
 | `-f, --format` | `json` | Output format: `json`, `csv` |
 | `-o, --output` | *(stdout)* | Write output to file |
+| `--dtw-window` | auto for larger rates | Optional Sakoe-Chiba band radius for faster approximate DTW runs |
+| `--exact-dtw` | off | Force exact DTW-family metrics even at larger resampling rates |
 
 ---
 
@@ -251,8 +273,10 @@ Key flags:
 | `--round` | `3` | Decimal precision in output metrics |
 | `-f, --format` | `json` | Output format: `json`, `csv` |
 | `-o, --output` | *(stdout)* | Write output to file |
+| `--dtw-window` | auto for larger rates | Optional Sakoe-Chiba band radius for faster approximate DTW runs |
+| `--exact-dtw` | off | Force exact DTW-family metrics even at larger resampling rates |
 
-Current example/placeholder 'distribution metrics:
+Current distribution metrics:
 
 - `wassersteinDistance`
 - `energyDistance`
@@ -275,7 +299,7 @@ There are two metric families:
 ### 1) Add a gesture metric (shared by `relacc` and `relacc-pairwise`)
 
 1. Implement the metric function in `relacc/relacc.py` (signature: `(gesture, summaryShape) -> float`).
-2. Register it in `relacc/metrics.py` by appending an entry to `_METRIC_DEFINITIONS`, for example:
+2. Register it in `relacc/metrics.py` by appending an entry to `BASE_METRIC_DEFINITIONS` or `DTW_METRIC_DEFINITIONS`, for example:
    `("myMetric", RelAcc.myMetric)`.
 
 After step 2, it is automatically included in:

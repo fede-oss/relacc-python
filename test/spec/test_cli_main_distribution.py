@@ -169,3 +169,30 @@ def test_main_distribution_invalid_grouping_fails(tmp_path):
 
     assert res.returncode != 0
     assert "invalid choice" in res.stderr
+
+
+def test_main_distribution_rejects_exact_dtw_with_window(tmp_path):
+    reference_dir = tmp_path / "reference"
+    candidate_dir = tmp_path / "candidate"
+    _write_csv(reference_dir / "s01-arrow-01.csv", _sample_rows(0))
+    _write_csv(reference_dir / "s02-arrow-02.csv", _sample_rows(1))
+    _write_csv(candidate_dir / "g01-arrow-01.csv", _sample_rows(2))
+
+    res = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "main-distribution.py"),
+            "--exact-dtw",
+            "--dtw-window",
+            "4",
+            str(reference_dir),
+            str(candidate_dir),
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert res.returncode != 0
+    assert "--dtw-window cannot be combined with --exact-dtw" in res.stderr

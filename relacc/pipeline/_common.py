@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, List, Sequence, Tuple
 
+from relacc.dtw import (
+    DEFAULT_EXACT_RATE_THRESHOLD,
+    recommended_window as recommended_dtw_window,
+)
 from relacc.geom.pointset import PointSet
 from relacc.gestures.gesture import Gesture
 from relacc.gestures.ptaligntype import PtAlignType
@@ -89,6 +93,20 @@ def sampling_rate(reference_points, candidate_points, rate):
     return sampling_rate_for_sets([reference_points, candidate_points], rate)
 
 
+def effective_dtw_window(
+    effective_rate: int,
+    requested_window: int | None = None,
+    exact_dtw: bool = False,
+) -> int | None:
+    if exact_dtw:
+        return None
+    if requested_window is not None:
+        return requested_window
+    if effective_rate <= DEFAULT_EXACT_RATE_THRESHOLD:
+        return None
+    return recommended_dtw_window(effective_rate)
+
+
 def compute_pair_metrics_from_points(
     reference_points,
     candidate_points,
@@ -98,8 +116,18 @@ def compute_pair_metrics_from_points(
     summary_shape: str | None = None,
     popular_shape: bool = False,
     round_precision: int | None = None,
+    metric_names: Sequence[str] | None = None,
+    dtw_window: int | None = None,
+    exact_dtw: bool = False,
 ):
+    selected_dtw_window = effective_dtw_window(effective_rate, dtw_window, exact_dtw)
     reference = Gesture(reference_points, label, effective_rate)
     candidate = Gesture(candidate_points, label, effective_rate)
     summary = SummaryGesture([reference], alignment_type, summary_shape, popular_shape)
-    return compute_metrics(candidate, summary, round_precision=round_precision)
+    return compute_metrics(
+        candidate,
+        summary,
+        round_precision=round_precision,
+        metric_names=metric_names,
+        dtw_window=selected_dtw_window,
+    )

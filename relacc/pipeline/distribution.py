@@ -13,6 +13,7 @@ from relacc.utils.math import MathUtil
 
 from ._common import (
     compute_pair_metrics_from_points,
+    effective_dtw_window,
     load_csv_entries,
     normalize_summary_shape,
     sampling_rate_for_sets,
@@ -217,9 +218,12 @@ def _metric_samples_for_class(
     alignment_type: int,
     summary_shape: str | None,
     popular_shape: bool,
+    dtw_window: int | None = None,
+    exact_dtw: bool = False,
 ):
     reference_points = [entry.points for entry in spec.reference_entries]
     effective_rate = sampling_rate_for_sets(reference_points, rate)
+    selected_dtw_window = effective_dtw_window(effective_rate, dtw_window, exact_dtw)
 
     baseline_samples = {name: [] for name in METRIC_NAMES}
     candidate_samples = {name: [] for name in METRIC_NAMES}
@@ -233,6 +237,8 @@ def _metric_samples_for_class(
             alignment_type=alignment_type,
             summary_shape=summary_shape,
             popular_shape=popular_shape,
+            dtw_window=selected_dtw_window,
+            exact_dtw=exact_dtw,
         )
         backward_values = compute_pair_metrics_from_points(
             right_entry.points,
@@ -242,6 +248,8 @@ def _metric_samples_for_class(
             alignment_type=alignment_type,
             summary_shape=summary_shape,
             popular_shape=popular_shape,
+            dtw_window=selected_dtw_window,
+            exact_dtw=exact_dtw,
         )
         for metric_name in METRIC_NAMES:
             baseline_samples[metric_name].append(
@@ -260,11 +268,13 @@ def _metric_samples_for_class(
             alignment_type=alignment_type,
             summary_shape=summary_shape,
             popular_shape=popular_shape,
+            dtw_window=selected_dtw_window,
+            exact_dtw=exact_dtw,
         )
         for metric_name in METRIC_NAMES:
             candidate_samples[metric_name].append(values[metric_name])
 
-    return baseline_samples, candidate_samples, effective_rate
+    return baseline_samples, candidate_samples, effective_rate, selected_dtw_window
 
 
 def run_distribution_comparison(
@@ -276,6 +286,8 @@ def run_distribution_comparison(
     popular_shape: bool = False,
     round_precision: int = 3,
     group_by: str = GROUP_BY_FILENAME_LABEL,
+    dtw_window: int | None = None,
+    exact_dtw: bool = False,
 ):
     summary_shape = normalize_summary_shape(summary_shape)
     group_by = _normalize_group_by(group_by)
@@ -296,15 +308,19 @@ def run_distribution_comparison(
 
     total_reference_count = 0
     total_candidate_count = 0
+    effective_dtw_windows = set()
 
     for spec in valid_classes:
-        baseline_samples, candidate_samples, _ = _metric_samples_for_class(
+        baseline_samples, candidate_samples, _, selected_dtw_window = _metric_samples_for_class(
             spec,
             rate=rate,
             alignment_type=alignment_type,
             summary_shape=summary_shape,
             popular_shape=popular_shape,
+            dtw_window=dtw_window,
+            exact_dtw=exact_dtw,
         )
+        effective_dtw_windows.add(selected_dtw_window)
         total_reference_count += len(spec.reference_entries)
         total_candidate_count += len(spec.candidate_entries)
 
@@ -352,6 +368,12 @@ def run_distribution_comparison(
             "summary": summary_shape,
             "popular": bool(popular_shape),
             "roundPrecision": round_precision,
+            "dtwWindow": (
+                next(iter(effective_dtw_windows))
+                if len(effective_dtw_windows) == 1
+                else None
+            ),
+            "exactDtw": bool(exact_dtw),
         },
         "results": {
             "perClass": per_class_results,

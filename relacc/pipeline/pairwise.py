@@ -11,6 +11,7 @@ from relacc.metrics import METRIC_NAMES, compute_metrics
 from ._common import (
     SUMMARY_SHAPES,
     compute_pair_metrics_from_points,
+    effective_dtw_window,
     list_csv_files,
     load_csv_entries,
     normalize_summary_shape,
@@ -116,12 +117,22 @@ def compare_pair(
     summary_shape: str | None = None,
     popular_shape: bool = False,
     round_precision: int = 3,
+    metric_names: Sequence[str] | None = None,
+    dtw_window: int | None = None,
+    exact_dtw: bool = False,
 ):
     reference_points = _read_points(pair.reference_file)
     candidate_points = _read_points(pair.candidate_file)
 
     pair_label = label or pair.key
     effective_rate = _sampling_rate(reference_points, candidate_points, rate)
+    selected_dtw_window = effective_dtw_window(
+        effective_rate,
+        dtw_window,
+        exact_dtw,
+    )
+
+    selected_metric_names = tuple(metric_names or METRIC_NAMES)
     metrics = compute_pair_metrics_from_points(
         reference_points,
         candidate_points,
@@ -131,6 +142,9 @@ def compare_pair(
         summary_shape=summary_shape,
         popular_shape=popular_shape,
         round_precision=round_precision,
+        metric_names=selected_metric_names,
+        dtw_window=selected_dtw_window,
+        exact_dtw=exact_dtw,
     )
 
     row = {
@@ -144,6 +158,7 @@ def compare_pair(
         "alignment": alignment_type,
         "summary": summary_shape,
         "popular": bool(popular_shape),
+        "dtwWindow": selected_dtw_window,
     }
     row.update(metrics)
     return row
@@ -158,6 +173,9 @@ def compare_against_reference_summary(
     summary_shape: str | None = None,
     popular_shape: bool = False,
     round_precision: int = 3,
+    metric_names: Sequence[str] | None = None,
+    dtw_window: int | None = None,
+    exact_dtw: bool = False,
 ):
     reference_root = Path(reference_input)
     candidate_root = Path(candidate_input)
@@ -176,6 +194,11 @@ def compare_against_reference_summary(
     # In summary mode the reference summary should be independent of candidate data.
     reference_points = [entry[2] for entry in reference_entries]
     effective_rate = _sampling_rate_for_sets(reference_points, rate)
+    selected_dtw_window = effective_dtw_window(
+        effective_rate,
+        dtw_window,
+        exact_dtw,
+    )
 
     summary_label = label or "reference-summary"
     reference_gestures = [
@@ -188,13 +211,20 @@ def compare_against_reference_summary(
         summary_shape,
         popular_shape,
     )
+    selected_metric_names = tuple(metric_names or METRIC_NAMES)
 
     results = []
     for candidate_key, candidate_path, candidate_points in candidate_entries:
         pair_key = _pair_key(candidate_key)
         pair_label = label or pair_key
         candidate = Gesture(candidate_points, pair_label, effective_rate)
-        metrics = compute_metrics(candidate, reference_summary, round_precision=round_precision)
+        metrics = compute_metrics(
+            candidate,
+            reference_summary,
+            round_precision=round_precision,
+            metric_names=selected_metric_names,
+            dtw_window=selected_dtw_window,
+        )
 
         row = {
             "pairKey": pair_key,
@@ -207,6 +237,7 @@ def compare_against_reference_summary(
             "alignment": alignment_type,
             "summary": summary_shape,
             "popular": bool(popular_shape),
+            "dtwWindow": selected_dtw_window,
         }
         row.update(metrics)
         results.append(row)
@@ -225,9 +256,13 @@ def run_pairwise_comparison(
     strict: bool = True,
     round_precision: int = 3,
     comparison_mode: str = DIRECT_MODE,
+    metric_names: Sequence[str] | None = None,
+    dtw_window: int | None = None,
+    exact_dtw: bool = False,
 ):
     summary_shape = _normalize_summary_shape(summary_shape)
     mode = _normalize_mode(comparison_mode)
+    selected_metric_names = tuple(metric_names or METRIC_NAMES)
 
     if mode == DIRECT_MODE:
         pairs, missing_in_candidate, missing_in_reference = discover_pairs(
@@ -244,6 +279,9 @@ def run_pairwise_comparison(
                 summary_shape=summary_shape,
                 popular_shape=popular_shape,
                 round_precision=round_precision,
+                metric_names=selected_metric_names,
+                dtw_window=dtw_window,
+                exact_dtw=exact_dtw,
             )
             for pair in pairs
         ]
@@ -259,8 +297,14 @@ def run_pairwise_comparison(
                 summary_shape=summary_shape,
                 popular_shape=popular_shape,
                 round_precision=round_precision,
+                metric_names=selected_metric_names,
+                dtw_window=dtw_window,
+                exact_dtw=exact_dtw,
             )
         )
+
+    effective_windows = {row.get("dtwWindow") for row in results}
+    metadata_dtw_window = effective_windows.pop() if len(effective_windows) == 1 else None
 
     return {
         "metadata": {
@@ -276,12 +320,19 @@ def run_pairwise_comparison(
             "rate": rate,
             "label": label,
             "roundPrecision": round_precision,
+            "metricNames": list(selected_metric_names),
+            "dtwWindow": metadata_dtw_window,
+            "exactDtw": bool(exact_dtw),
         },
         "pairs": results,
     }
 
 
-def format_pair_rows_csv(rows: Sequence[Dict[str, object]]) -> str:
+def format_pair_rows_csv(
+    rows: Sequence[Dict[str, object]],
+    metric_names: Sequence[str] | None = None,
+) -> str:
+    selected_metric_names = tuple(metric_names or METRIC_NAMES)
     columns: List[str] = [
         "pairKey",
         "label",
@@ -293,7 +344,8 @@ def format_pair_rows_csv(rows: Sequence[Dict[str, object]]) -> str:
         "alignment",
         "summary",
         "popular",
-        *METRIC_NAMES,
+        "dtwWindow",
+        *selected_metric_names,
     ]
     lines = [",".join(columns)]
 

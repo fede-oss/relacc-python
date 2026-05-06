@@ -130,7 +130,12 @@ def test_metric_samples_for_class_use_reference_only_for_auto_rate_and_generate_
     monkeypatch.setattr(Distribution, "sampling_rate_for_sets", fake_sampling_rate_for_sets)
     monkeypatch.setattr(Distribution, "compute_pair_metrics_from_points", fake_compute_pair_metrics)
 
-    baseline_samples, candidate_samples, effective_rate = Distribution._metric_samples_for_class(
+    (
+        baseline_samples,
+        candidate_samples,
+        effective_rate,
+        selected_dtw_window,
+    ) = Distribution._metric_samples_for_class(
         spec,
         rate=None,
         alignment_type=0,
@@ -139,6 +144,7 @@ def test_metric_samples_for_class_use_reference_only_for_auto_rate_and_generate_
     )
 
     assert effective_rate == 9
+    assert selected_dtw_window is None
     assert captured_point_sets == [[["ref-1"], ["ref-2"]]]
     assert baseline_samples["shapeError"] == [2.0]
     assert candidate_samples["shapeError"] == [5.0, 7.0]
@@ -181,6 +187,8 @@ def test_run_distribution_comparison_outputs_per_class_and_overall(tmp_path):
     assert payload["metadata"]["comparisonMode"] == "distribution"
     assert payload["metadata"]["groupBy"] == "filename-label"
     assert payload["metadata"]["validClassCount"] == 3
+    assert payload["metadata"]["dtwWindow"] is None
+    assert payload["metadata"]["exactDtw"] is False
     assert payload["metadata"]["skippedClasses"] == [
         {
             "classKey": "triangle",
@@ -234,6 +242,7 @@ def test_run_distribution_comparison_parent_dir_grouping_and_validation(tmp_path
         popular_shape=True,
         round_precision=2,
         group_by="parent-dir",
+        dtw_window=4,
     )
 
     assert payload["metadata"]["groupBy"] == "parent-dir"
@@ -241,6 +250,7 @@ def test_run_distribution_comparison_parent_dir_grouping_and_validation(tmp_path
     assert payload["metadata"]["alignment"] == 1
     assert payload["metadata"]["summary"] == "centroid"
     assert payload["metadata"]["popular"] is True
+    assert payload["metadata"]["dtwWindow"] == 4
     first_row = payload["results"]["perClass"][0]
     assert first_row["referenceCount"] == 2
     assert first_row["candidateCount"] == 1
