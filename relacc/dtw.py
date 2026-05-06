@@ -166,7 +166,7 @@ def _run_dtw(
                 candidates.append((current_costs[j - 1], current_lengths[j - 1], 1))
             if i > 0 and j > 0 and not math.isinf(prev_costs[j - 1]):
                 candidates.append((prev_costs[j - 1], prev_lengths[j - 1], 0))
-            if not candidates:
+            if not candidates:  # pragma: no cover - defensive; the band is widened to stay connected.
                 continue
 
             prev_cost, prev_length, _ = _best_predecessor(
@@ -178,7 +178,7 @@ def _run_dtw(
         prev_costs = current_costs
         prev_lengths = current_lengths
 
-    if math.isinf(prev_costs[-1]):
+    if math.isinf(prev_costs[-1]):  # pragma: no cover - defensive; see band widening above.
         raise ValueError("window is too small to align the sequences.")
 
     return DTWResult(cost=prev_costs[-1], path_length=prev_lengths[-1])

@@ -62,24 +62,27 @@ class CSVUtil:
     @staticmethod
     @contextmanager
     def _open_text_auto(file):
-        with open(file, "rb") as probe:
-            signature = probe.read(2)
-
         with ExitStack() as stack:
-            if signature == b"\x1f\x8b":
-                text_stream = CSVUtil._open_gzip_payload(stack, file)
+            if tarfile.is_tarfile(file):
+                text_stream = CSVUtil._open_archive_payload(stack, file)
             else:
-                text_stream = stack.enter_context(open(file, "r", encoding="utf-8", errors="replace"))
+                with open(file, "rb") as probe:
+                    signature = probe.read(2)
+
+                if signature == b"\x1f\x8b":
+                    text_stream = stack.enter_context(
+                        gzip.open(file, "rt", encoding="utf-8", errors="replace")
+                    )
+                else:
+                    text_stream = stack.enter_context(
+                        open(file, "r", encoding="utf-8", errors="replace")
+                    )
 
             yield text_stream
 
     @staticmethod
-    def _open_gzip_payload(stack, file):
-        try:
-            archive = stack.enter_context(tarfile.open(file, mode="r:gz"))
-        except tarfile.ReadError:
-            return stack.enter_context(gzip.open(file, "rt", encoding="utf-8", errors="replace"))
-
+    def _open_archive_payload(stack, file):
+        archive = stack.enter_context(tarfile.open(file, mode="r:*"))
         members = [member for member in archive if member.isfile()]
         csv_members = [member for member in members if member.name.lower().endswith(".csv")]
         candidates = csv_members + [member for member in members if member not in csv_members]
@@ -94,7 +97,7 @@ class CSVUtil:
             if member.name.lower().endswith(".csv") or CSVUtil._header_index_from_text(text) is not None:
                 return stack.enter_context(io.StringIO(text))
 
-        raise ValueError("No CSV file found in gzip tar payload.")
+        raise ValueError("No CSV file found in archive: %s" % file)
 
     @staticmethod
     def _detect_delimiter(header):

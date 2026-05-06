@@ -13,13 +13,15 @@ authors = [
   { name = "Luis A. Leiva" }
 ]
 dependencies = [
-  "matplotlib>=3.8"
+  "matplotlib>=3.8",
+  "scipy>=1.13"
 ]
 
 [project.scripts]
 relacc = "relacc_cli:main"
 relacc-canvas = "relacc_canvas_cli:main"
 relacc-pairwise = "relacc_pairwise_cli:main"
+relacc-distribution = "relacc_distribution_cli:main"
 
 [project.optional-dependencies]
 dev = [
@@ -29,7 +31,7 @@ dev = [
 
 [tool.setuptools]
 packages = ["relacc", "relacc.geom", "relacc.gestures", "relacc.utils", "relacc.pipeline"]
-py-modules = ["relacc_cli", "relacc_canvas_cli", "relacc_pairwise_cli"]
+py-modules = ["relacc_cli", "relacc_canvas_cli", "relacc_pairwise_cli", "relacc_distribution_cli"]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]

@@ -1,6 +1,7 @@
 import gzip
 import io
 import tarfile
+from contextlib import ExitStack
 from pathlib import Path
 
 import pytest
@@ -85,7 +86,6 @@ def test_csv_parse_gzip_text(tmp_path):
     assert points[0].X == 10.0
     assert points[1].T == 10.0
 
-
 def test_csv_parse_gzip_tar_payload_with_csv_extension(tmp_path):
     payload_file = Path(tmp_path) / "gesture.csv"
     rows = [
@@ -151,6 +151,83 @@ def test_csv_parse_gzip_tar_skips_non_csv_members(tmp_path):
     assert len(points) == 2
     assert points[0].StrokeID == 1
     assert points[1].T == 10.0
+
+
+def test_csv_parse_plain_tar_member_without_csv_extension_when_header_matches(tmp_path):
+    payload_file = Path(tmp_path) / "gesture.csv"
+    csv_rows = [
+        "stroke_id x y time is_writing",
+        "1 50 88 0 1",
+        "1 51 89 10 1",
+    ]
+    csv_bytes = "\n".join(csv_rows).encode("utf-8")
+
+    with tarfile.open(payload_file, mode="w") as archive:
+        member = tarfile.TarInfo(name="payload.txt")
+        member.size = len(csv_bytes)
+        archive.addfile(member, io.BytesIO(csv_bytes))
+
+    out = {}
+
+    def cb(points):
+        out["points"] = points
+
+    CSVUtil.readGesture(str(payload_file), cb)
+    points = out["points"]
+
+    assert len(points) == 2
+    assert points[0].X == 50.0
+    assert points[1].T == 10.0
+
+
+def test_csv_archive_without_csv_payload_raises(tmp_path):
+    archive_path = Path(tmp_path) / "empty-archive.csv"
+
+    with tarfile.open(archive_path, "w:gz") as archive:
+        info = tarfile.TarInfo(name="nested/")
+        info.type = tarfile.DIRTYPE
+        archive.addfile(info)
+
+    with pytest.raises(ValueError, match="No CSV file found in archive"):
+        with CSVUtil._open_text_auto(str(archive_path)):
+            pass
+
+
+def test_csv_archive_skips_members_without_payload(monkeypatch):
+    class FakeMember:
+        name = "gesture.csv"
+
+        def isfile(self):
+            return True
+
+    class FakeArchive:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def __iter__(self):
+            return iter([FakeMember()])
+
+        def extractfile(self, _member):
+            return None
+
+    monkeypatch.setattr(tarfile, "open", lambda *_args, **_kwargs: FakeArchive())
+
+    with ExitStack() as stack:
+        with pytest.raises(ValueError, match="No CSV file found in archive"):
+            CSVUtil._open_archive_payload(stack, "dummy.csv")
+
+
+def test_csv_header_index_from_text_handles_bom_and_blank_payload():
+    assert CSVUtil._header_index_from_text("\n\n") is None
+
+    index = CSVUtil._header_index_from_text(
+        "\ufeffstroke_id,x,y,time,is_writing\n0,1,2,3,1\n"
+    )
+
+    assert index == {"stroke_id": 0, "x": 1, "y": 2, "time": 3, "is_writing": 4}
 
 
 def test_csv_empty_file_returns_empty_points(tmp_path):

@@ -1,38 +1,50 @@
-"""Distribution-vs-distribution metric placeholders.
-
-- ``relacc.metrics`` is for per-gesture metrics that can be used in pairwise and
-  one-vs-many flows.
-- this file includes metrics for comparing distributions which compare two *sets* of
-  samples/statistics and should not run in pairwise mode by default.
-
-"""
+"""Distribution-vs-distribution metrics for scalar sample collections."""
 
 from __future__ import annotations
 
 from typing import Callable, Dict, Iterable, Tuple
 
+from scipy.stats import energy_distance, ks_2samp, wasserstein_distance
 
-# A distribution metric receives two datasets/feature collections and returns a
-# scalar distance/divergence score (lower is usually better).
+from relacc.utils.math import MathUtil
+
+
 DistributionMetricFn = Callable[[Iterable[float], Iterable[float]], float]
 
 
-def _placeholder_metric(reference_values: Iterable[float], candidate_values: Iterable[float]) -> float:
-    """Temporary placeholder metric.
+def _wasserstein_distance(
+    reference_values: Iterable[float],
+    candidate_values: Iterable[float],
+) -> float:
+    return float(wasserstein_distance(reference_values, candidate_values))
 
-    Current behavior:
-    - materializes both iterables
-    - returns absolute difference in sample counts
-    
-    Replace with real implementations in the distribution pipeline.
-    """
-    ref = list(reference_values)
-    cand = list(candidate_values)
-    return float(abs(len(ref) - len(cand)))
+
+def _energy_distance(
+    reference_values: Iterable[float],
+    candidate_values: Iterable[float],
+) -> float:
+    return float(energy_distance(reference_values, candidate_values))
+
+
+def _ks_statistic(
+    reference_values: Iterable[float],
+    candidate_values: Iterable[float],
+) -> float:
+    return float(ks_2samp(reference_values, candidate_values).statistic)
+
+
+def _ks_pvalue(
+    reference_values: Iterable[float],
+    candidate_values: Iterable[float],
+) -> float:
+    return float(ks_2samp(reference_values, candidate_values).pvalue)
 
 
 _DISTRIBUTION_METRIC_DEFINITIONS: Tuple[Tuple[str, DistributionMetricFn], ...] = (
-    ("placeholderCountGap", _placeholder_metric),
+    ("wassersteinDistance", _wasserstein_distance),
+    ("energyDistance", _energy_distance),
+    ("ksStatistic", _ks_statistic),
+    ("ksPValue", _ks_pvalue),
 )
 
 DISTRIBUTION_METRIC_NAMES: Tuple[str, ...] = tuple(
@@ -43,13 +55,16 @@ DISTRIBUTION_METRIC_NAMES: Tuple[str, ...] = tuple(
 def compute_distribution_metrics(
     reference_values: Iterable[float],
     candidate_values: Iterable[float],
+    round_precision: int | None = None,
 ) -> Dict[str, float]:
     """Compute all registered distribution metrics for two value collections."""
-    # Materialize once so multiple metrics can safely consume the same inputs.
     ref_values = list(reference_values)
     cand_values = list(candidate_values)
 
     results: Dict[str, float] = {}
     for name, metric_fn in _DISTRIBUTION_METRIC_DEFINITIONS:
-        results[name] = metric_fn(ref_values, cand_values)
+        value = metric_fn(ref_values, cand_values)
+        if round_precision is not None:
+            value = MathUtil.roundTo(value, round_precision)
+        results[name] = value
     return results

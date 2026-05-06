@@ -177,6 +177,11 @@ def test_windowed_dtw_can_trade_accuracy_for_speed():
     assert Dtw.dtw(first, second, window=0).cost == pytest.approx(10.0)
 
 
+def test_recommended_window_rejects_invalid_series_length():
+    with pytest.raises(ValueError, match="series_length must be >= 1\\."):
+        Dtw.recommended_window(0)
+
+
 def test_dtw_variants_reject_negative_window():
     first = [p(0, 0), p(1, 0)]
     second = [p(0, 0), p(1, 0)]

@@ -4,17 +4,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
-from relacc.dtw import (
-    DEFAULT_EXACT_RATE_THRESHOLD,
-    recommended_window as recommended_dtw_window,
-)
-from relacc.geom.pointset import PointSet
 from relacc.gestures.gesture import Gesture
 from relacc.gestures.ptaligntype import PtAlignType
 from relacc.gestures.summarygesture import SummaryGesture
 from relacc.metrics import METRIC_NAMES, compute_metrics
-from relacc.utils.csv import CSVUtil
-from relacc.utils.math import MathUtil
+from ._common import (
+    SUMMARY_SHAPES,
+    compute_pair_metrics_from_points,
+    effective_dtw_window,
+    list_csv_files,
+    load_csv_entries,
+    normalize_summary_shape,
+    pair_key,
+    read_points,
+    sampling_rate,
+    sampling_rate_for_sets,
+)
 
 
 @dataclass(frozen=True)
@@ -28,55 +33,17 @@ DIRECT_MODE = "direct"
 SUMMARY_MODE = "summary"
 COMPARISON_MODES: Tuple[str, str] = (DIRECT_MODE, SUMMARY_MODE)
 
-SUMMARY_SHAPES = {"centroid", "medoid", "kcentroid", "kmedoid"}
-
-
-def _effective_dtw_window(
-    effective_rate: int,
-    requested_window: int | None,
-    exact_dtw: bool,
-) -> int | None:
-    if exact_dtw:
-        return None
-    if requested_window is not None:
-        return requested_window
-    if effective_rate <= DEFAULT_EXACT_RATE_THRESHOLD:
-        return None
-    return recommended_dtw_window(effective_rate)
-
 
 def _list_csv_files(path: Path) -> Dict[str, Path]:
-    if not path.exists():
-        raise FileNotFoundError("Path does not exist: %s" % path)
-
-    if path.is_file():
-        if path.suffix.lower() != ".csv":
-            raise ValueError("Expected a .csv file: %s" % path)
-        return {path.name: path}
-
-    files: Dict[str, Path] = {}
-    for csv_path in sorted(path.rglob("*.csv")):
-        rel = csv_path.relative_to(path).as_posix()
-        files[rel] = csv_path
-    return files
+    return list_csv_files(path)
 
 
 def _pair_key(relative_csv_path: str) -> str:
-    rel_path = Path(relative_csv_path)
-    return rel_path.with_suffix("").as_posix()
+    return pair_key(relative_csv_path)
 
 
 def _normalize_summary_shape(summary_shape: str | None):
-    if summary_shape is None:
-        return None
-
-    normalized_summary = summary_shape.strip().lower()
-    if normalized_summary not in SUMMARY_SHAPES:
-        raise ValueError(
-            "Invalid summary shape (%s). Supported values: centroid, medoid, kcentroid, kmedoid."
-            % summary_shape
-        )
-    return normalized_summary
+    return normalize_summary_shape(summary_shape)
 
 
 def _normalize_mode(comparison_mode: str | None):
@@ -131,35 +98,15 @@ def discover_pairs(reference_input: str, candidate_input: str, strict: bool = Tr
 
 
 def _read_points(csv_file: str):
-    state = {}
-
-    def _done(points):
-        state["points"] = points
-
-    CSVUtil.readGesture(csv_file, _done)
-    points = state.get("points")
-    if not points:
-        raise ValueError("No points parsed from CSV file: %s" % csv_file)
-    return points
+    return read_points(csv_file)
 
 
 def _sampling_rate_for_sets(point_sets, rate):
-    if rate is not None:
-        parsed_rate = int(rate)
-        if parsed_rate < 1:
-            raise ValueError("Sampling rate must be >= 1.")
-        return parsed_rate
-
-    max_strokes = 1
-    for points in point_sets:
-        stroke_count = PointSet.countStrokes(points)
-        if stroke_count > max_strokes:
-            max_strokes = stroke_count
-    return max(24, MathUtil.factorial(max_strokes))
+    return sampling_rate_for_sets(point_sets, rate)
 
 
 def _sampling_rate(reference_points, candidate_points, rate):
-    return _sampling_rate_for_sets([reference_points, candidate_points], rate)
+    return sampling_rate(reference_points, candidate_points, rate)
 
 
 def compare_pair(
@@ -179,23 +126,25 @@ def compare_pair(
 
     pair_label = label or pair.key
     effective_rate = _sampling_rate(reference_points, candidate_points, rate)
-    effective_dtw_window = _effective_dtw_window(
+    selected_dtw_window = effective_dtw_window(
         effective_rate,
         dtw_window,
         exact_dtw,
     )
 
-    reference = Gesture(reference_points, pair_label, effective_rate)
-    candidate = Gesture(candidate_points, pair_label, effective_rate)
-    summary = SummaryGesture([reference], alignment_type, summary_shape, popular_shape)
-
     selected_metric_names = tuple(metric_names or METRIC_NAMES)
-    metrics = compute_metrics(
-        candidate,
-        summary,
+    metrics = compute_pair_metrics_from_points(
+        reference_points,
+        candidate_points,
+        pair_label,
+        effective_rate,
+        alignment_type=alignment_type,
+        summary_shape=summary_shape,
+        popular_shape=popular_shape,
         round_precision=round_precision,
         metric_names=selected_metric_names,
-        dtw_window=effective_dtw_window,
+        dtw_window=selected_dtw_window,
+        exact_dtw=exact_dtw,
     )
 
     row = {
@@ -209,7 +158,7 @@ def compare_pair(
         "alignment": alignment_type,
         "summary": summary_shape,
         "popular": bool(popular_shape),
-        "dtwWindow": effective_dtw_window,
+        "dtwWindow": selected_dtw_window,
     }
     row.update(metrics)
     return row
@@ -239,19 +188,13 @@ def compare_against_reference_summary(
     if len(candidate_files) == 0:
         raise ValueError("No candidate CSV files found.")
 
-    reference_entries = [
-        (key, str(path), _read_points(str(path)))
-        for key, path in sorted(reference_files.items())
-    ]
-    candidate_entries = [
-        (key, str(path), _read_points(str(path)))
-        for key, path in sorted(candidate_files.items())
-    ]
+    reference_entries = load_csv_entries(reference_root)
+    candidate_entries = load_csv_entries(candidate_root)
 
     # In summary mode the reference summary should be independent of candidate data.
     reference_points = [entry[2] for entry in reference_entries]
     effective_rate = _sampling_rate_for_sets(reference_points, rate)
-    effective_dtw_window = _effective_dtw_window(
+    selected_dtw_window = effective_dtw_window(
         effective_rate,
         dtw_window,
         exact_dtw,
@@ -280,7 +223,7 @@ def compare_against_reference_summary(
             reference_summary,
             round_precision=round_precision,
             metric_names=selected_metric_names,
-            dtw_window=effective_dtw_window,
+            dtw_window=selected_dtw_window,
         )
 
         row = {
@@ -294,7 +237,7 @@ def compare_against_reference_summary(
             "alignment": alignment_type,
             "summary": summary_shape,
             "popular": bool(popular_shape),
-            "dtwWindow": effective_dtw_window,
+            "dtwWindow": selected_dtw_window,
         }
         row.update(metrics)
         results.append(row)
