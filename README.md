@@ -24,7 +24,7 @@ python3 -m pip install --break-system-packages -e .
 
 Both `relacc` and `relacc-canvas` work the same way conceptually:
 
-1. You pass **multiple CSV files** for the same gesture (e.g. 10 trials of an arrow gesture).
+1. You pass **multiple CSV or JSON files** for the same gesture (e.g. 10 trials of an arrow gesture).
 2. A single **summary gesture** (the reference) is computed from the whole collection.
 3. Every individual sample is measured against that reference, producing metrics per sample.
 
@@ -82,13 +82,19 @@ Use `-p` (`--popular`) to filter out gestures whose stroke count differs from th
 
 Computes metrics for each gesture relative to the summary and prints the results.
 
-**Per-gesture output** (default): one row per input file.
+**Per-gesture output** (default): JSON payload with one result object per input file.
+Use `-f csv` for a flat comma-separated table or `-f xml` for XML.
 
 ```bash
 relacc -s -r 32 -a 1 -m centroid -f json /path/to/*gesture_name*.csv
 
-# All arrow-fast trials for subject 01, one row per trial
+# All arrow-fast trials for subject 01, one JSON result per trial
 relacc datasets/becaptcha/1dollar/s01-arrow-fast-*.csv
+
+# Save per-file rows as CSV
+relacc -m centroid -r 32 \
+  -o /tmp/arrow-fast-samples.csv \
+  datasets/becaptcha/1dollar/s01-arrow-fast-*.csv
 ```
 
 **Aggregate stats** (`-s`): one row per metric, summarising the whole collection (mean, median, sd, min, max).
@@ -131,10 +137,23 @@ relacc -s -m centroid -r 32 --exact-dtw -f json \
 | `-s, --stats` | off | Output aggregate stats instead of per-file rows |
 | `-f, --format` | `json` | Output format: `json`, `csv`, `xml` |
 | `-o, --output` | *(stdout)* | Write output to file (format inferred from extension) |
+| `--round` | `3` | Decimal precision in output metrics |
 | `--dtw-window` | auto for larger rates | Optional Sakoe-Chiba band radius for faster approximate DTW runs |
 | `--exact-dtw` | off | Force exact DTW-family metrics even at larger resampling rates |
-| `-l, --label` | *(from filename)* | Gesture label — inferred from the second `-`-separated segment of the first filename if omitted |
+| `-l, --label` | *(from filename)* | Gesture label — inferred from the second `-`-separated segment of the first filename if omitted. Filenames that do not match the expected pattern fail with a clear error; pass `-l` to override inference. |
 | `-v, --verbose` | off | Debug logging |
+
+Python API:
+
+```python
+from relacc.pipeline.one_vs_many import run_one_vs_many_comparison
+
+payload = run_one_vs_many_comparison(
+    ["s01-arrow-01.csv", "s01-arrow-02.csv"],
+    summary_shape="centroid",
+    stats=True,
+)
+```
 
 ---
 
