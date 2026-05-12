@@ -12,6 +12,7 @@ from ._common import (
     SUMMARY_SHAPES,
     compute_pair_metrics_from_points,
     effective_dtw_window,
+    format_csv_rows,
     list_csv_files,
     load_csv_entries,
     normalize_summary_shape,
@@ -347,19 +348,4 @@ def format_pair_rows_csv(
         "dtwWindow",
         *selected_metric_names,
     ]
-    lines = [",".join(columns)]
-
-    for row in rows:
-        fields: List[str] = []
-        for column in columns:
-            value = row.get(column, "")
-            if value is None:
-                value = ""
-            text = str(value)
-            text = text.replace('"', '""')
-            if "," in text or '"' in text:
-                text = '"%s"' % text
-            fields.append(text)
-        lines.append(",".join(fields))
-
-    return "\n".join(lines)
+    return format_csv_rows(rows, columns)

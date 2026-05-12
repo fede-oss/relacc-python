@@ -52,6 +52,7 @@ def test_main_json_stats_output(tmp_path):
     payload = json.loads(res.stdout)
     assert "metadata" in payload
     assert "results" in payload
+    assert payload["metadata"]["comparisonMode"] == "one-vs-many"
     assert "shapeError" in payload["results"]
     assert payload["metadata"]["args"]["exact_dtw"] is False
     assert payload["metadata"]["args"]["dtw_window"] is None
@@ -164,8 +165,79 @@ def test_main_csv_and_xml_file_output(tmp_path):
 
     assert out_csv.exists()
     assert out_xml.exists()
-    assert out_csv.read_text(encoding="utf-8").startswith("measure n mean")
+    assert out_csv.read_text(encoding="utf-8").startswith("measure,n,mean")
     assert out_xml.read_text(encoding="utf-8").startswith("<?xml")
+
+
+def test_main_per_file_json_and_csv_output(tmp_path):
+    f1 = tmp_path / "s1-arrow-t1.csv"
+    f2 = tmp_path / "s1-arrow-t2.csv"
+    _write_csv(f1, _sample_rows(0))
+    _write_csv(f2, _sample_rows(1))
+
+    json_res = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "main.py"),
+            "-f",
+            "json",
+            "-r",
+            "3",
+            str(f1),
+            str(f2),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(json_res.stdout)
+    assert payload["metadata"]["stats"] is False
+    assert len(payload["results"]) == 2
+    assert payload["results"][0]["file"] == "s1-arrow-t1"
+
+    out_csv = tmp_path / "samples.csv"
+    subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "main.py"),
+            "-o",
+            str(out_csv),
+            "-r",
+            "3",
+            str(f1),
+            str(f2),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert out_csv.read_text(encoding="utf-8").splitlines()[0].startswith(
+        "file,inputFile,label,rate"
+    )
+
+
+def test_main_malformed_filename_label_inference_fails_cleanly(tmp_path):
+    f1 = tmp_path / "arrow.csv"
+    _write_csv(f1, _sample_rows(0))
+
+    res = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "main.py"),
+            str(f1),
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert res.returncode != 0
+    assert "Cannot derive gesture label" in res.stderr
 
 
 def test_get_stats_returns_nan_when_any_values_are_non_finite():
