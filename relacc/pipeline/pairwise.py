@@ -226,6 +226,15 @@ def compare_pair(
     return row
 
 
+def _skipped_pair_error(pair: PairSpec, exc: Exception) -> Dict[str, str]:
+    return {
+        "pairKey": pair.key,
+        "referenceFile": pair.reference_file,
+        "candidateFile": pair.candidate_file,
+        "error": str(exc),
+    }
+
+
 def compare_against_reference_summary(
     reference_input: str,
     candidate_input: str,
@@ -332,23 +341,39 @@ def run_pairwise_comparison(
             candidate_input,
             strict=strict,
         )
-        results = [
-            compare_pair(
-                pair,
-                label=label,
-                rate=rate,
-                alignment_type=alignment_type,
-                summary_shape=summary_shape,
-                popular_shape=popular_shape,
-                round_precision=round_precision,
-                metric_names=selected_metric_names,
-                dtw_window=dtw_window,
-                exact_dtw=exact_dtw,
+        results = []
+        skipped_pair_errors = []
+        for pair in pairs:
+            try:
+                results.append(
+                    compare_pair(
+                        pair,
+                        label=label,
+                        rate=rate,
+                        alignment_type=alignment_type,
+                        summary_shape=summary_shape,
+                        popular_shape=popular_shape,
+                        round_precision=round_precision,
+                        metric_names=selected_metric_names,
+                        dtw_window=dtw_window,
+                        exact_dtw=exact_dtw,
+                    )
+                )
+            except Exception as exc:
+                if strict:
+                    raise ValueError(
+                        "Failed to compare pair %s (reference: %s, candidate: %s): %s"
+                        % (pair.key, pair.reference_file, pair.candidate_file, exc)
+                    ) from exc
+                skipped_pair_errors.append(_skipped_pair_error(pair, exc))
+        if not results:
+            raise ValueError(
+                "No valid pairwise comparisons were produced. Skipped invalid pairs: %d."
+                % len(skipped_pair_errors)
             )
-            for pair in pairs
-        ]
         reference_count = len(results)
     else:
+        skipped_pair_errors = []
         results, missing_in_candidate, missing_in_reference, reference_count = (
             compare_against_reference_summary(
                 reference_input,
@@ -385,6 +410,7 @@ def run_pairwise_comparison(
             "metricNames": list(selected_metric_names),
             "dtwWindow": metadata_dtw_window,
             "exactDtw": bool(exact_dtw),
+            "skippedPairErrors": skipped_pair_errors,
         },
         "pairs": results,
     }
