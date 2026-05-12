@@ -119,7 +119,7 @@ class PointSet:
         newPoints = []
         pathLen = PointSet.pathLength(points)
         if pathLen == 0:
-            for i in range(1, n):
+            for i in range(n):
                 newPoints.append(Point(points[0]))
             return newPoints
 

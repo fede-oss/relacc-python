@@ -261,6 +261,34 @@ def test_compute_compare_and_run_pairwise(tmp_path):
     assert payload["pairs"][0]["dtwWindow"] is None
 
 
+def test_run_pairwise_direct_no_strict_skips_invalid_pairs(tmp_path):
+    reference_dir = tmp_path / "reference"
+    candidate_dir = tmp_path / "candidate"
+
+    _write_csv(reference_dir / "valid.csv", _sample_rows())
+    _write_csv(candidate_dir / "valid.csv", _sample_rows(1))
+    _write_csv(reference_dir / "invalid.csv", _sample_rows(2))
+    _write_csv(candidate_dir / "invalid.csv", ["stroke_id x y time is_writing"])
+
+    with pytest.raises(ValueError, match="Failed to compare pair invalid"):
+        Pairwise.run_pairwise_comparison(
+            str(reference_dir),
+            str(candidate_dir),
+            strict=True,
+        )
+
+    payload = Pairwise.run_pairwise_comparison(
+        str(reference_dir),
+        str(candidate_dir),
+        strict=False,
+    )
+
+    assert payload["metadata"]["pairCount"] == 1
+    assert payload["pairs"][0]["pairKey"] == "valid"
+    assert len(payload["metadata"]["skippedPairErrors"]) == 1
+    assert payload["metadata"]["skippedPairErrors"][0]["pairKey"] == "invalid"
+
+
 def test_run_pairwise_summary_mode_compares_all_candidates(tmp_path):
     reference_dir = tmp_path / "reference"
     candidate_dir = tmp_path / "candidate"

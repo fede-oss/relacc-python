@@ -45,7 +45,7 @@ def test_scale_to_and_translate_helpers():
 def test_zero_length_unif_resampling():
     same = [Point(1, 1, 0, 0), Point(1, 1, 0, 0)]
     rs = PointSet.unifResampling(same, 4)
-    assert len(rs) == 3
+    assert len(rs) == 4
     assert rs[0] == Point(1, 1, 0, 0)
 
 
