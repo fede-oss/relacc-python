@@ -103,6 +103,64 @@ def test_discover_pairs_directory_modes(tmp_path):
     assert missing_reference == ["only_cand.csv"]
 
 
+def test_discover_pairs_directory_matches_extra_layout_folder(tmp_path):
+    reference_dir = tmp_path / "reference"
+    candidate_dir = tmp_path / "candidate"
+
+    _write_csv(reference_dir / "projected3Dsignatures" / "realTO" / "78_14.csv", _sample_rows())
+    _write_csv(candidate_dir / "projected3Dsignatures" / "78_14.csv", _sample_rows(1))
+
+    pairs, missing_candidate, missing_reference = Pairwise.discover_pairs(
+        str(reference_dir),
+        str(candidate_dir),
+    )
+
+    assert [p.key for p in pairs] == ["projected3Dsignatures/realTO/78_14"]
+    assert pairs[0].reference_file.endswith("projected3Dsignatures/realTO/78_14.csv")
+    assert pairs[0].candidate_file.endswith("projected3Dsignatures/78_14.csv")
+    assert missing_candidate == []
+    assert missing_reference == []
+
+
+def test_discover_pairs_directory_uses_top_level_to_disambiguate_filenames(tmp_path):
+    reference_dir = tmp_path / "reference"
+    candidate_dir = tmp_path / "candidate"
+
+    _write_csv(reference_dir / "alpha" / "realTO" / "same.csv", _sample_rows())
+    _write_csv(reference_dir / "beta" / "realTO" / "same.csv", _sample_rows(1))
+    _write_csv(candidate_dir / "alpha" / "same.csv", _sample_rows(2))
+    _write_csv(candidate_dir / "beta" / "same.csv", _sample_rows(3))
+
+    pairs, missing_candidate, missing_reference = Pairwise.discover_pairs(
+        str(reference_dir),
+        str(candidate_dir),
+    )
+
+    assert [p.key for p in pairs] == ["alpha/realTO/same", "beta/realTO/same"]
+    assert pairs[0].candidate_file.endswith("alpha/same.csv")
+    assert pairs[1].candidate_file.endswith("beta/same.csv")
+    assert missing_candidate == []
+    assert missing_reference == []
+
+
+def test_discover_pairs_directory_unique_filename_fallback(tmp_path):
+    reference_dir = tmp_path / "reference"
+    candidate_dir = tmp_path / "candidate"
+
+    _write_csv(reference_dir / "reference-only-layout" / "a.csv", _sample_rows())
+    _write_csv(candidate_dir / "candidate-only-layout" / "a.csv", _sample_rows(1))
+
+    pairs, missing_candidate, missing_reference = Pairwise.discover_pairs(
+        str(reference_dir),
+        str(candidate_dir),
+    )
+
+    assert [p.key for p in pairs] == ["reference-only-layout/a"]
+    assert pairs[0].candidate_file.endswith("candidate-only-layout/a.csv")
+    assert missing_candidate == []
+    assert missing_reference == []
+
+
 def test_discover_pairs_no_matching_files(tmp_path):
     reference_dir = tmp_path / "reference"
     candidate_dir = tmp_path / "candidate"
