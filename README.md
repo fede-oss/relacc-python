@@ -180,7 +180,7 @@ relacc-canvas -m centroid \
 
 - `--mode direct` (default): strict reference-vs-candidate pairing.
   - file vs file: one pair
-  - directory vs directory: matched by relative CSV path (`nested/a.csv` ↔ `nested/a.csv`)
+  - directory vs directory: matched first by relative CSV path (`nested/a.csv` ↔ `nested/a.csv`), then by unambiguous layout-tolerant keys (`dataset/realTO/a.csv` ↔ `dataset/a.csv`, or unique `a.csv` filenames)
   - `--strict/--no-strict` controls whether unmatched files fail or are skipped
 - `--mode summary`: candidate-vs-summary-reference.
   - all CSVs in `reference` are used to build one summary gesture
