@@ -82,14 +82,17 @@ Use `-p` (`--popular`) to filter out gestures whose stroke count differs from th
 
 Computes metrics for each gesture relative to the summary and prints the results.
 
-**Per-gesture output** (default): JSON payload with one result object per input file.
-Use `-f csv` for a flat comma-separated table or `-f xml` for XML.
+**Per-gesture output** (default): one whitespace-separated row per input file.
+Use `-f json` for a structured JSON payload, `-f csv` for a flat comma-separated table, or `-f xml` for XML.
 
 ```bash
 relacc -s -r 32 -a 1 -m centroid -f json /path/to/*gesture_name*.csv
 
-# All arrow-fast trials for subject 01, one JSON result per trial
+# All arrow-fast trials for subject 01, one row per trial
 relacc datasets/becaptcha/1dollar/s01-arrow-fast-*.csv
+
+# Structured JSON output
+relacc -f json datasets/becaptcha/1dollar/s01-arrow-fast-*.csv
 
 # Save per-file rows as CSV
 relacc -m centroid -r 32 \
@@ -135,7 +138,7 @@ relacc -s -m centroid -r 32 --exact-dtw -f json \
 | `-a, --alignment` | `0` | Point alignment: `0` = chronological, `1` = cloud-match (unordered) |
 | `-p, --popular` | off | Filter to most common stroke count before building summary |
 | `-s, --stats` | off | Output aggregate stats instead of per-file rows |
-| `-f, --format` | `json` | Output format: `json`, `csv`, `xml` |
+| `-f, --format` | per-file text, stats JSON | Output format: `json`, `csv`, `xml`, `text` |
 | `-o, --output` | *(stdout)* | Write output to file (format inferred from extension) |
 | `--round` | `3` | Decimal precision in output metrics |
 | `--dtw-window` | auto for larger rates | Optional Sakoe-Chiba band radius for faster approximate DTW runs |

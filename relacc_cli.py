@@ -5,6 +5,7 @@ import json
 from relacc.gestures.ptaligntype import PtAlignType
 from relacc.pipeline._common import effective_dtw_window, output_format
 from relacc.pipeline.one_vs_many import (
+    TEXT_FORMATS,
     format_one_vs_many_result,
     json_safe,
     legacy_args_from_metadata,
@@ -31,6 +32,12 @@ def getStats(arr):
 
 def _resolve_dtw_window(rate, exact_dtw, requested_window):
     return effective_dtw_window(rate, requested_window, exact_dtw)
+
+
+def _get_format(output, requested_format, stats):
+    if output is None and requested_format is None and not stats:
+        return "text"
+    return output_format(output, requested_format)
 
 
 def toJSON(obj, defaults):
@@ -120,9 +127,11 @@ def main(argv=None):
         raise ValueError("Please provide some gesture files as input.")
 
     debug = Debug({"verbose": bool(opt.verbose)})
-    fmt = output_format(opt.output, opt.format)
-    if fmt not in ["json", "csv", "xml"]:
-        raise ValueError("Invalid output format (%s). Supported formats: json, csv, xml." % fmt)
+    fmt = _get_format(opt.output, opt.format, opt.stats)
+    if fmt not in ["json", "csv", "xml", *TEXT_FORMATS]:
+        raise ValueError(
+            "Invalid output format (%s). Supported formats: json, csv, xml, text." % fmt
+        )
 
     rate = _int_cast(opt.rate)
     parsed_alignment = _int_cast(opt.alignment)

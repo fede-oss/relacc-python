@@ -220,6 +220,58 @@ def test_main_per_file_json_and_csv_output(tmp_path):
     )
 
 
+def test_main_per_file_default_output_remains_legacy_text_table(tmp_path):
+    f1 = tmp_path / "s1-arrow-t1.csv"
+    f2 = tmp_path / "s1-arrow-t2.csv"
+    _write_csv(f1, _sample_rows(0))
+    _write_csv(f2, _sample_rows(1))
+
+    res = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "main.py"),
+            "-r",
+            "3",
+            str(f1),
+            str(f2),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    lines = res.stdout.splitlines()
+    assert lines[0].startswith("file shapeError")
+    assert lines[1].startswith("s1-arrow-t1 ")
+    assert lines[2].startswith("s1-arrow-t2 ")
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(res.stdout)
+
+
+def test_main_per_file_text_output_can_be_requested_explicitly(tmp_path):
+    f1 = tmp_path / "s1-arrow-t1.csv"
+    _write_csv(f1, _sample_rows(0))
+
+    res = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "main.py"),
+            "-f",
+            "text",
+            "-r",
+            "3",
+            str(f1),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert res.stdout.splitlines()[0].startswith("file shapeError")
+
+
 def test_main_malformed_filename_label_inference_fails_cleanly(tmp_path):
     f1 = tmp_path / "arrow.csv"
     _write_csv(f1, _sample_rows(0))

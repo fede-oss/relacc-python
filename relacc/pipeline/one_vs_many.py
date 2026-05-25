@@ -26,6 +26,7 @@ from ._common import (
 
 ONE_VS_MANY_MODE = "one-vs-many"
 STATS_COLUMNS = ("measure", "n", "mean", "mdn", "sd", "min", "max")
+TEXT_FORMATS = {"plain", "text", "txt"}
 
 
 def json_safe(value):
@@ -242,6 +243,40 @@ def format_one_vs_many_samples_csv(
     return format_csv_rows(rows, columns)
 
 
+def format_one_vs_many_stats_text(results: Dict[str, Dict[str, object]]) -> str:
+    lines = [" ".join(STATS_COLUMNS)]
+    for measure, stats in results.items():
+        lines.append(
+            "%s %d %s %s %s %s %s"
+            % (
+                measure,
+                stats["n"],
+                stats["mean"],
+                stats["mdn"],
+                stats["sd"],
+                stats["min"],
+                stats["max"],
+            )
+        )
+    return "\n".join(lines)
+
+
+def format_one_vs_many_samples_text(
+    rows: Sequence[Dict[str, object]],
+    metric_names: Sequence[str] | None = None,
+) -> str:
+    selected_metric_names = tuple(metric_names or METRIC_NAMES)
+    lines = [" ".join(("file", *selected_metric_names))]
+    for row in rows:
+        lines.append(
+            " ".join(
+                str(row.get(column, ""))
+                for column in ("file", *selected_metric_names)
+            )
+        )
+    return "\n".join(lines)
+
+
 def _xml_attr(name, value):
     if value is None:
         value = ""
@@ -303,6 +338,7 @@ def format_one_vs_many_result(
     fmt: str,
     legacy_args: Dict[str, object] | None = None,
 ) -> str:
+    fmt = fmt.lower()
     if fmt == "json":
         return format_one_vs_many_json(payload, legacy_args=legacy_args)
     if fmt == "csv":
@@ -314,4 +350,13 @@ def format_one_vs_many_result(
         )
     if fmt == "xml":
         return format_one_vs_many_xml(payload, legacy_args=legacy_args)
-    raise ValueError("Invalid output format (%s). Supported formats: json, csv, xml." % fmt)
+    if fmt in TEXT_FORMATS:
+        if payload["metadata"]["stats"]:
+            return format_one_vs_many_stats_text(payload["results"])
+        return format_one_vs_many_samples_text(
+            payload["results"],
+            metric_names=payload["metadata"]["metricNames"],
+        )
+    raise ValueError(
+        "Invalid output format (%s). Supported formats: json, csv, xml, text." % fmt
+    )
