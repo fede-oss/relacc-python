@@ -118,6 +118,42 @@ def test_csv_parse_gzip_tar_payload_with_csv_extension(tmp_path):
     assert points[2].StrokeID == 2
 
 
+def test_csv_parse_truncated_gzip_tar_when_first_csv_member_is_complete(tmp_path):
+    payload_file = Path(tmp_path) / "gesture.csv"
+    csv_rows = [
+        "stroke_id x y time is_writing",
+        "1 50 88 0 1",
+        "1 51 89 10 1",
+    ]
+    csv_bytes = "\n".join(csv_rows).encode("utf-8")
+
+    tar_buffer = io.BytesIO()
+    with tarfile.open(fileobj=tar_buffer, mode="w") as archive:
+        first = tarfile.TarInfo(name="inner/gesture.csv")
+        first.size = len(csv_bytes)
+        archive.addfile(first, io.BytesIO(csv_bytes))
+
+        padding = b"x" * 1_000_000
+        second = tarfile.TarInfo(name="inner/later.bin")
+        second.size = len(padding)
+        archive.addfile(second, io.BytesIO(padding))
+
+    truncated_gzip = gzip.compress(tar_buffer.getvalue())[:-8]
+    payload_file.write_bytes(truncated_gzip)
+
+    out = {}
+
+    def cb(points):
+        out["points"] = points
+
+    CSVUtil.readGesture(str(payload_file), cb)
+    points = out["points"]
+
+    assert len(points) == 2
+    assert points[0].X == 50.0
+    assert points[1].T == 10.0
+
+
 def test_csv_parse_gzip_tar_skips_non_csv_members(tmp_path):
     payload_file = Path(tmp_path) / "gesture.csv"
     csv_rows = [
