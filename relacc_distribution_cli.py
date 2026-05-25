@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 import argparse
 import json
-import os
 
 from relacc.gestures.ptaligntype import PtAlignType
+from relacc.pipeline._common import output_format
 from relacc.pipeline.distribution import (
     GROUP_BY_FILENAME_LABEL,
     GROUP_BY_MODES,
@@ -38,14 +38,6 @@ def build_parser():
     return parser
 
 
-def _get_format(output, requested_format):
-    if output:
-        ext = os.path.splitext(output)[1][1:].lower()
-        if ext:
-            return ext
-    return (requested_format or "json").lower()
-
-
 def _display_result(text, output, debug):
     if output:
         with open(output, "w", encoding="utf-8") as fh:
@@ -69,7 +61,7 @@ def main(argv=None):
 
     debug = Debug({"verbose": bool(opt.verbose)})
 
-    fmt = _get_format(opt.output, opt.format)
+    fmt = output_format(opt.output, opt.format)
     if fmt not in ["json", "csv"]:
         raise ValueError("Invalid output format (%s). Supported formats: json, csv." % fmt)
 

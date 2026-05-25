@@ -13,7 +13,9 @@ from relacc.utils.math import MathUtil
 
 from ._common import (
     compute_pair_metrics_from_points,
+    csv_escape,
     effective_dtw_window,
+    infer_label_from_filename,
     load_csv_entries,
     normalize_summary_shape,
     sampling_rate_for_sets,
@@ -55,15 +57,7 @@ def _normalize_group_by(group_by: str | None):
 
 
 def _filename_label_class_key(relative_csv_path: str) -> str:
-    filename = relative_csv_path.rsplit("/", 1)[-1]
-    stem = filename.rsplit(".", 1)[0]
-    parts = stem.split("-")
-    if len(parts) < 3:
-        raise ValueError(
-            "Cannot derive class label from filename (%s). Expected at least 3 '-' separated parts."
-            % relative_csv_path
-        )
-    return parts[1]
+    return infer_label_from_filename(relative_csv_path, "class")
 
 
 def _parent_dir_class_key(relative_csv_path: str) -> str:
@@ -430,16 +424,6 @@ def format_distribution_rows_csv(results: Dict[str, Sequence[Dict[str, object]]]
         }
         flat_row.update(distribution_metrics)
 
-        fields: List[str] = []
-        for column in columns:
-            value = flat_row.get(column, "")
-            if value is None:
-                value = ""
-            text = str(value)
-            text = text.replace('"', '""')
-            if "," in text or '"' in text:
-                text = '"%s"' % text
-            fields.append(text)
-        lines.append(",".join(fields))
+        lines.append(",".join(csv_escape(flat_row.get(column, "")) for column in columns))
 
     return "\n".join(lines)
