@@ -47,6 +47,53 @@ def test_run_one_vs_many_comparison_outputs_samples_and_stats(tmp_path):
     assert set(payload["results"].keys()) == set(METRIC_NAMES)
 
 
+def test_run_one_vs_many_stats_aggregate_raw_values_before_rounding(monkeypatch, tmp_path):
+    files = [
+        str(tmp_path / "s1-arrow-t1.csv"),
+        str(tmp_path / "s1-arrow-t2.csv"),
+        str(tmp_path / "s1-arrow-t3.csv"),
+    ]
+
+    class FakeGesture:
+        def __init__(self, points, label, rate):
+            self.points = points
+            self.label = label
+            self.rate = rate
+
+    class FakeSummaryGesture:
+        def __init__(self, gestures, alignment_type, summary_shape, popular_shape):
+            self.gestures = gestures
+
+    metric_results = iter(
+        [
+            {"shapeError": 1.24},
+            {"shapeError": 1.25},
+            {"shapeError": 1.25},
+        ]
+    )
+
+    def fake_compute_metrics(*args, round_precision, **kwargs):
+        assert round_precision is None
+        return next(metric_results)
+
+    monkeypatch.setattr(OneVsMany, "read_gesture_points", lambda file_path: [object()])
+    monkeypatch.setattr(OneVsMany, "Gesture", FakeGesture)
+    monkeypatch.setattr(OneVsMany, "SummaryGesture", FakeSummaryGesture)
+    monkeypatch.setattr(OneVsMany, "compute_metrics", fake_compute_metrics)
+
+    payload = OneVsMany.run_one_vs_many_comparison(
+        files,
+        label="arrow",
+        rate=1,
+        stats=True,
+        round_precision=1,
+        metric_names=["shapeError"],
+    )
+
+    assert [sample["shapeError"] for sample in payload["samples"]] == [1.2, 1.3, 1.3]
+    assert payload["results"]["shapeError"]["mean"] == 1.2
+
+
 def test_run_one_vs_many_rejects_bad_rate_and_bad_inferred_label(tmp_path):
     f1 = tmp_path / "arrow.csv"
     _write_csv(f1, _sample_rows(0))

@@ -133,15 +133,23 @@ def run_one_vs_many_comparison(
     metric_values = {name: [] for name in selected_metric_names}
     rows = []
     for entry, gesture in zip(entries, gestures):
-        values = compute_metrics(
+        raw_values = compute_metrics(
             gesture,
             summary,
-            round_precision=round_precision,
+            round_precision=None,
             metric_names=selected_metric_names,
             dtw_window=selected_dtw_window,
         )
-        for name, value in values.items():
+        for name, value in raw_values.items():
             metric_values[name].append(value)
+        values = (
+            raw_values
+            if round_precision is None
+            else {
+                name: MathUtil.roundTo(value, round_precision)
+                for name, value in raw_values.items()
+            }
+        )
 
         row = {
             "file": entry["key"],
@@ -307,4 +315,3 @@ def format_one_vs_many_result(
     if fmt == "xml":
         return format_one_vs_many_xml(payload, legacy_args=legacy_args)
     raise ValueError("Invalid output format (%s). Supported formats: json, csv, xml." % fmt)
-
