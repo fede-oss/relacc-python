@@ -20,6 +20,8 @@ from .reporting import (
     CLASS_SCHEME_FILENAME_LABEL,
     CLASS_SCHEME_PARENT_DIR,
     CLASS_SCHEMES,
+    DEFAULT_CANDIDATE_SOURCE_NAME,
+    DEFAULT_REFERENCE_SOURCE_NAME,
     DEFAULT_SAMPLE_LIMIT,
     REPORTING_MODE,
     ReportingEntry,
@@ -30,18 +32,26 @@ from .reporting import (
     load_reporting_entries,
     select_reporting_samples,
 )
+from .one_vs_many import (
+    ONE_VS_MANY_MODE,
+    format_one_vs_many_result,
+    run_one_vs_many_comparison,
+)
 
 __all__ = [
     "CLASS_SCHEME_AUTO",
     "CLASS_SCHEME_FILENAME_LABEL",
     "CLASS_SCHEME_PARENT_DIR",
     "CLASS_SCHEMES",
+    "DEFAULT_CANDIDATE_SOURCE_NAME",
+    "DEFAULT_REFERENCE_SOURCE_NAME",
     "DEFAULT_SAMPLE_LIMIT",
     "DISTRIBUTION_MODE",
     "GROUP_BY_FILENAME_LABEL",
     "GROUP_BY_MODES",
     "GROUP_BY_PARENT_DIR",
     "METRIC_NAMES",
+    "ONE_VS_MANY_MODE",
     "PairSpec",
     "REPORTING_MODE",
     "ReportingEntry",
@@ -51,9 +61,11 @@ __all__ = [
     "discover_pairs",
     "discover_reporting_sample_groups",
     "format_distribution_rows_csv",
+    "format_one_vs_many_result",
     "format_pair_rows_csv",
     "load_reporting_entries",
     "run_distribution_comparison",
+    "run_one_vs_many_comparison",
     "run_pairwise_comparison",
     "select_reporting_samples",
 ]

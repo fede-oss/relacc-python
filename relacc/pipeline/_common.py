@@ -13,6 +13,7 @@ from relacc.gestures.ptaligntype import PtAlignType
 from relacc.gestures.summarygesture import SummaryGesture
 from relacc.metrics import compute_metrics
 from relacc.utils.csv import CSVUtil
+from relacc.utils.json import JSONUtil
 from relacc.utils.math import MathUtil
 
 
@@ -40,6 +41,19 @@ def pair_key(relative_csv_path: str) -> str:
     return rel_path.with_suffix("").as_posix()
 
 
+def infer_label_from_filename(relative_path: str, label_kind: str = "gesture") -> str:
+    filename = relative_path.rsplit("/", 1)[-1]
+    stem = filename.rsplit(".", 1)[0]
+    parts = stem.split("-")
+    if len(parts) < 3 or not parts[1]:
+        raise ValueError(
+            "Cannot derive %s label from filename (%s). "
+            "Expected at least 3 '-' separated parts."
+            % (label_kind, relative_path)
+        )
+    return parts[1]
+
+
 def normalize_summary_shape(summary_shape: str | None):
     if summary_shape is None:
         return None
@@ -63,6 +77,28 @@ def read_points(csv_file: str):
     points = state.get("points")
     if not points:
         raise ValueError("No points parsed from CSV file: %s" % csv_file)
+    return points
+
+
+def read_gesture_points(file_path: str):
+    suffix = Path(file_path).suffix.lower()
+    state = {}
+
+    def _done(points):
+        state["points"] = points
+
+    if suffix == ".csv":
+        CSVUtil.readGesture(file_path, _done)
+    elif suffix == ".json":
+        JSONUtil.readGesture(file_path, _done)
+    else:
+        raise ValueError(
+            "Invalid input file format (%s). Supported formats: json, csv." % suffix
+        )
+
+    points = state.get("points")
+    if not points:
+        raise ValueError("No points parsed from gesture file: %s" % file_path)
     return points
 
 
@@ -105,6 +141,31 @@ def effective_dtw_window(
     if effective_rate <= DEFAULT_EXACT_RATE_THRESHOLD:
         return None
     return recommended_dtw_window(effective_rate)
+
+
+def output_format(output: str | None, requested_format: str | None, default: str = "json"):
+    if output:
+        ext = Path(output).suffix[1:].lower()
+        if ext:
+            return ext
+    return (requested_format or default).lower()
+
+
+def csv_escape(value) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    text = text.replace('"', '""')
+    if "," in text or '"' in text or "\n" in text:
+        return '"%s"' % text
+    return text
+
+
+def format_csv_rows(rows: Sequence[Dict[str, object]], columns: Sequence[str]) -> str:
+    lines = [",".join(columns)]
+    for row in rows:
+        lines.append(",".join(csv_escape(row.get(column, "")) for column in columns))
+    return "\n".join(lines)
 
 
 def compute_pair_metrics_from_points(

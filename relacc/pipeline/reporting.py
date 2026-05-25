@@ -21,6 +21,8 @@ REPORTING_MODE = "report"
 DEFAULT_SAMPLE_LIMIT = 16
 REFERENCE_SOURCE = "reference"
 CANDIDATE_SOURCE = "candidate"
+DEFAULT_REFERENCE_SOURCE_NAME = "human"
+DEFAULT_CANDIDATE_SOURCE_NAME = "generated"
 STABLE_SAMPLING_MODE = "stable"
 SEEDED_RANDOM_SAMPLING_MODE = "seeded-random"
 CLASS_SCHEME_AUTO = "auto"
@@ -352,19 +354,22 @@ def discover_reporting_sample_groups(
 
 def build_sample_manifest(
     sample_groups: Sequence[ReportingSampleGroup],
+    reference_source_name: str = DEFAULT_REFERENCE_SOURCE_NAME,
+    candidate_source_name: str = DEFAULT_CANDIDATE_SOURCE_NAME,
 ) -> List[Dict[str, object]]:
     manifest = []
     for group in sample_groups:
-        for source, entries in [
-            (REFERENCE_SOURCE, group.reference_entries),
-            (CANDIDATE_SOURCE, group.candidate_entries),
+        for source_role, source_name, entries in [
+            (REFERENCE_SOURCE, reference_source_name, group.reference_entries),
+            (CANDIDATE_SOURCE, candidate_source_name, group.candidate_entries),
         ]:
             for index, entry in enumerate(entries, start=1):
                 manifest.append(
                     {
                         "datasetKey": group.dataset_key,
                         "classKey": group.class_key,
-                        "source": source,
+                        "source": source_name,
+                        "sourceRole": source_role,
                         "sampleIndex": index,
                         "key": entry.key,
                         "file": entry.path,
@@ -380,6 +385,8 @@ def select_reporting_samples(
     class_scheme: str = CLASS_SCHEME_AUTO,
     sample_limit: int = DEFAULT_SAMPLE_LIMIT,
     random_seed: int | str | None = None,
+    reference_source_name: str = DEFAULT_REFERENCE_SOURCE_NAME,
+    candidate_source_name: str = DEFAULT_CANDIDATE_SOURCE_NAME,
 ) -> Dict[str, object]:
     normalized_group_by = _normalize_group_by(group_by)
     normalized_class_scheme = _normalize_class_scheme(class_scheme)
@@ -405,8 +412,16 @@ def select_reporting_samples(
             ),
             "randomSeed": random_seed,
             "groupCount": len(sample_groups),
+            "sourceNames": {
+                REFERENCE_SOURCE: reference_source_name,
+                CANDIDATE_SOURCE: candidate_source_name,
+            },
         },
-        "samples": build_sample_manifest(sample_groups),
+        "samples": build_sample_manifest(
+            sample_groups,
+            reference_source_name=reference_source_name,
+            candidate_source_name=candidate_source_name,
+        ),
     }
 
 
@@ -416,6 +431,8 @@ __all__ = [
     "CLASS_SCHEME_FILENAME_LABEL",
     "CLASS_SCHEME_PARENT_DIR",
     "CLASS_SCHEMES",
+    "DEFAULT_CANDIDATE_SOURCE_NAME",
+    "DEFAULT_REFERENCE_SOURCE_NAME",
     "DEFAULT_SAMPLE_LIMIT",
     "GROUP_BY_FILENAME_LABEL",
     "GROUP_BY_MODES",

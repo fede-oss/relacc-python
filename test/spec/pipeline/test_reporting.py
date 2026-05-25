@@ -41,12 +41,17 @@ def test_select_reporting_samples_keeps_all_files_under_limit(tmp_path):
     assert payload["metadata"]["sampleLimit"] == 16
     assert payload["metadata"]["samplingMode"] == "stable"
     assert payload["metadata"]["groupCount"] == 1
+    assert payload["metadata"]["sourceNames"] == {
+        "reference": "human",
+        "candidate": "generated",
+    }
     assert len(payload["samples"]) == 6
-    assert _manifest_keys(payload, "reference") == [
+    assert _manifest_keys(payload, "human") == [
         "s00-arrow-01.csv",
         "s01-arrow-01.csv",
         "s02-arrow-01.csv",
     ]
+    assert payload["samples"][0]["sourceRole"] == "reference"
 
 
 def test_select_reporting_samples_limits_each_source_to_sixteen(tmp_path):
@@ -62,10 +67,10 @@ def test_select_reporting_samples_limits_each_source_to_sixteen(tmp_path):
     )
 
     reference_rows = [
-        row for row in payload["samples"] if row["source"] == "reference"
+        row for row in payload["samples"] if row["sourceRole"] == "reference"
     ]
     candidate_rows = [
-        row for row in payload["samples"] if row["source"] == "candidate"
+        row for row in payload["samples"] if row["sourceRole"] == "candidate"
     ]
     assert len(reference_rows) == 16
     assert len(candidate_rows) == 16
@@ -104,7 +109,7 @@ def test_sample_order_is_deterministic_for_stable_and_seeded_modes(tmp_path):
     )
 
     assert stable_a["samples"] == stable_b["samples"]
-    assert _manifest_keys(stable_a, "reference") == [
+    assert _manifest_keys(stable_a, "human") == [
         "s00-arrow-01.csv",
         "s01-arrow-01.csv",
         "s02-arrow-01.csv",
@@ -112,10 +117,34 @@ def test_sample_order_is_deterministic_for_stable_and_seeded_modes(tmp_path):
     ]
     assert seeded_a["samples"] == seeded_b["samples"]
     assert seeded_a["metadata"]["samplingMode"] == "seeded-random"
-    assert _manifest_keys(seeded_a, "reference") != _manifest_keys(
+    assert _manifest_keys(seeded_a, "human") != _manifest_keys(
         stable_a,
-        "reference",
+        "human",
     )
+
+
+def test_select_reporting_samples_allows_custom_source_names(tmp_path):
+    reference_dir = tmp_path / "reference"
+    candidate_dir = tmp_path / "candidate"
+    _write_csv(reference_dir / "s00-arrow-01.csv", 0)
+    _write_csv(candidate_dir / "g00-arrow-01.csv", 1)
+
+    payload = Reporting.select_reporting_samples(
+        str(reference_dir),
+        str(candidate_dir),
+        reference_source_name="real",
+        candidate_source_name="synthetic",
+    )
+
+    assert payload["metadata"]["sourceNames"] == {
+        "reference": "real",
+        "candidate": "synthetic",
+    }
+    assert [row["source"] for row in payload["samples"]] == ["real", "synthetic"]
+    assert [row["sourceRole"] for row in payload["samples"]] == [
+        "reference",
+        "candidate",
+    ]
 
 
 def test_filename_label_grouping_tracks_dataset_and_class(tmp_path):
