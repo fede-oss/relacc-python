@@ -67,6 +67,8 @@ def test_main_pairwise_json_stdout_single_pair(tmp_path):
     assert payload["pairs"][0]["dtwWindow"] is None
     assert "shapeError" in payload["pairs"][0]
     assert "dtwDistance" in payload["pairs"][0]
+    assert "cornerSlowdown" in payload["pairs"][0]
+    assert "meanStrokeDuration" in payload["pairs"][0]
 
 
 def test_main_pairwise_json_stdout_with_exact_dtw(tmp_path):

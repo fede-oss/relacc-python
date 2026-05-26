@@ -6,6 +6,12 @@ from relacc import metrics as Metrics
 def test_get_metric_names_can_exclude_dtw_metrics():
     assert Metrics.get_metric_names(include_dtw=False) == Metrics.BASE_METRIC_NAMES
     assert Metrics.get_metric_names() == Metrics.METRIC_NAMES
+    assert "cornerSlowdown" in Metrics.BASE_METRIC_NAMES
+    assert "twoThirdsPowerLawR2" in Metrics.BASE_METRIC_NAMES
+    assert "highFrequencyRatio" in Metrics.BASE_METRIC_NAMES
+    assert "curvature" in Metrics.BASE_METRIC_NAMES
+    assert "strokeLengthStd" in Metrics.BASE_METRIC_NAMES
+    assert "meanStrokeDuration" in Metrics.BASE_METRIC_NAMES
 
 
 def test_compute_metrics_rejects_unknown_metric_before_evaluation():
