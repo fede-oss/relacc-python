@@ -23,8 +23,14 @@ BASE_METRIC_DEFINITIONS: Tuple[Tuple[str, MetricFn], ...] = (
     ("timeVariability", RelAcc.timeVariability),
     ("velocityError", RelAcc.velocityError),
     ("velocityVariability", RelAcc.velocityVariability),
+    ("cornerSlowdown", RelAcc.cornerSlowdown),
+    ("twoThirdsPowerLawR2", RelAcc.twoThirdsPowerLawR2),
+    ("highFrequencyRatio", RelAcc.highFrequencyRatio),
+    ("curvature", RelAcc.curvature),
     ("strokeError", RelAcc.strokeError),
     ("strokeOrderError", RelAcc.strokeOrderError),
+    ("strokeLengthStd", RelAcc.strokeLengthStd),
+    ("meanStrokeDuration", RelAcc.meanStrokeDuration),
 )
 
 DTW_METRIC_DEFINITIONS: Tuple[Tuple[str, MetricFn], ...] = (

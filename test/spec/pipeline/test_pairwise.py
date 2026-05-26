@@ -289,6 +289,21 @@ def test_run_pairwise_direct_no_strict_skips_invalid_pairs(tmp_path):
     assert payload["metadata"]["skippedPairErrors"][0]["pairKey"] == "invalid"
 
 
+def test_run_pairwise_direct_no_strict_rejects_all_invalid_pairs(tmp_path):
+    reference_dir = tmp_path / "reference"
+    candidate_dir = tmp_path / "candidate"
+
+    _write_csv(reference_dir / "invalid.csv", _sample_rows(2))
+    _write_csv(candidate_dir / "invalid.csv", ["stroke_id x y time is_writing"])
+
+    with pytest.raises(ValueError, match="No valid pairwise comparisons"):
+        Pairwise.run_pairwise_comparison(
+            str(reference_dir),
+            str(candidate_dir),
+            strict=False,
+        )
+
+
 def test_run_pairwise_summary_mode_compares_all_candidates(tmp_path):
     reference_dir = tmp_path / "reference"
     candidate_dir = tmp_path / "candidate"
