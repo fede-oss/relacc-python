@@ -336,6 +336,31 @@ Current distribution metrics:
 
 ---
 
+### Raw distribution files for reports
+
+The reporting pipeline can export the unaggregated metric samples that sit
+under the histogram and distribution-summary workflow:
+
+- `raw_baseline_pairs.csv`: human-human baseline values. For each selected
+  dataset/class, every reference-reference pair is compared in both directions.
+- `raw_candidate_pairs.csv`: human-generated values. For each selected
+  dataset/class, every selected reference gesture is compared with every
+  selected candidate gesture.
+
+Both files are long-form CSVs with the same schema:
+
+For `R` selected reference gestures, `C` selected candidate gestures, and `M`
+gesture metrics, the baseline file has `R choose 2 * 2 * M` rows and the
+candidate file has `R * C * M` rows. To draw a histogram, filter each file by
+`datasetKey`, `classKey`, and `metric`, then plot the `value` column from the
+baseline file against the `value` column from the candidate file. The same value
+arrays can later be reused for means, medians, quantiles, skewness, kurtosis,
+Wasserstein distance, energy distance, and KS tests.
+
+Although running this distribution evaluation would explode exponentially as it computes the cross-product and is not really feasible.
+
+---
+
 ### Other commands
 
 - Legacy entry points: `python3 main.py`, `python3 main-canvas.py`, `python3 main-pairwise.py`, `python3 main-distribution.py`.
