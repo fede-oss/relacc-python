@@ -60,6 +60,14 @@ def test_main_distribution_json_stdout(tmp_path):
     assert payload["metadata"]["comparisonMode"] == "distribution"
     assert payload["metadata"]["validClassCount"] == 1
     assert len(payload["results"]["overall"]) > 0
+    assert any(
+        row["gestureMetric"] == "cornerSlowdown"
+        for row in payload["results"]["overall"]
+    )
+    assert any(
+        row["gestureMetric"] == "meanStrokeDuration"
+        for row in payload["results"]["overall"]
+    )
 
 
 def test_main_distribution_csv_file_output_parent_dir_grouping(tmp_path):

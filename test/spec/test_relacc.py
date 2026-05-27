@@ -34,6 +34,21 @@ def _fixture_shapes():
     return summaryPts, chronoPts, cloudPts, gesture, SummaryShape()
 
 
+def _summary_for(summaryPts, gesturePts):
+    class SummaryShape:
+        points = summaryPts
+
+        @staticmethod
+        def getPoints():
+            return summaryPts
+
+        @staticmethod
+        def alignGesture(_, alignmentType=None):
+            return gesturePts
+
+    return SummaryShape()
+
+
 def test_local_and_aggregate_shape_errors():
     _, _, _, gesture, summaryShape = _fixture_shapes()
     local = RelAcc.localShapeErrors(gesture, summaryShape)
@@ -66,6 +81,110 @@ def test_kinematic_metrics():
     assert RelAcc.velocityError(gesture, summaryShape) > 0
     assert RelAcc.velocityVariability(gesture, summaryShape) > 0
     assert len(RelAcc.localSpeedErrors(gesture, summaryShape)) == 3
+
+
+def test_curvature_and_corner_slowdown_metrics():
+    summaryPts = [
+        p(0, 0, 0, 0),
+        p(1, 0, 10, 0),
+        p(1, 1, 30, 0),
+        p(2, 1, 40, 0),
+        p(3, 1, 50, 0),
+    ]
+    gesturePts = [
+        p(0, 0, 0, 0),
+        p(1, 0, 10, 0),
+        p(1, 2, 20, 0),
+        p(2, 2, 30, 0),
+        p(3, 2, 40, 0),
+    ]
+    gesture = type("GestureObj", (), {"points": gesturePts})()
+    summaryShape = _summary_for(summaryPts, gesturePts)
+
+    assert RelAcc.curvatureArray(summaryPts)[0] == 0
+    assert RelAcc.curvatureArray(summaryPts)[1] > 0
+    assert RelAcc.curvature(gesture, summaryShape) > 0
+    assert RelAcc.cornerSlowdownRatio(summaryPts) < 1
+    assert RelAcc.cornerSlowdown(gesture, summaryShape) > 0
+
+    straight = [p(0, 0, 0, 0), p(1, 0, 10, 0), p(2, 0, 20, 0)]
+    still = [p(0, 0, 0, 0), p(0, 0, 0, 0), p(0, 0, 0, 0)]
+    broken_stroke = [p(0, 0, 0, 0), p(1, 0, 10, 1), p(1, 1, 20, 0)]
+    assert RelAcc.cornerSlowdownRatio(straight) == 1
+    assert RelAcc.cornerSlowdownRatio(still) == 1
+    assert RelAcc.curvatureArray(broken_stroke) == [0.0, 0.0, 0.0]
+    assert RelAcc.curvatureArray(still) == [0.0, 0.0, 0.0]
+
+
+def test_new_metric_defensive_paths(monkeypatch):
+    assert RelAcc._finiteMean([float("nan")], fallback=2.0) == 2.0
+
+    empty_summary = _summary_for([], [])
+    gesture = type("GestureObj", (), {"points": []})()
+    assert RelAcc.curvature(gesture, empty_summary) == 0
+
+    monkeypatch.setattr(RelAcc, "curvatureArray", lambda points: [1.0, 0.0])
+    monkeypatch.setattr(RelAcc, "speedArray", lambda points: [0.0, 1.0])
+    assert RelAcc.cornerSlowdownRatio([p(0, 0, 0, 0)]) == 1
+
+
+def test_power_law_frequency_and_stroke_metrics():
+    summaryPts = [
+        p(0, 0, 0, 0),
+        p(1, 0, 10, 0),
+        p(1, 1, 25, 0),
+        p(2, 1, 35, 0),
+        p(2, 3, 65, 1),
+        p(4, 3, 95, 1),
+    ]
+    gesturePts = [
+        p(0, 0, 0, 0),
+        p(1, 0, 8, 0),
+        p(1, 2, 18, 0),
+        p(2, 2, 28, 0),
+        p(1, 3, 38, 1),
+        p(5, 3, 58, 1),
+    ]
+    gesture = type("GestureObj", (), {"points": gesturePts})()
+    summaryShape = _summary_for(summaryPts, gesturePts)
+
+    assert 0 <= RelAcc.twoThirdsPowerLawR2Value(summaryPts) <= 1
+    assert RelAcc.twoThirdsPowerLawR2Value([p(0, 0, 0, 0), p(1, 0, 10, 0)]) == 0
+    assert RelAcc.twoThirdsPowerLawR2Value(
+        [
+            p(0, 0, 0, 0),
+            p(1, 0, 10, 0),
+            p(1, 1, 20, 0),
+            p(2, 1, 30, 0),
+            p(2, 2, 40, 0),
+        ]
+    ) == 0
+    assert RelAcc.twoThirdsPowerLawR2(gesture, summaryShape) >= 0
+
+    smooth = [p(0, 0, 0, 0), p(1, 0, 1, 0), p(2, 0, 2, 0)]
+    constant = [p(1, 1, 0, 0), p(1, 1, 1, 0), p(1, 1, 2, 0), p(1, 1, 3, 0)]
+    jittery = [
+        p(0, 0, 0, 0),
+        p(1, 1, 1, 0),
+        p(2, -1, 2, 0),
+        p(3, 1, 3, 0),
+        p(4, -1, 4, 0),
+        p(5, 0, 5, 0),
+    ]
+    assert RelAcc.highFrequencyRatioValue(smooth) == 0
+    assert RelAcc.highFrequencyRatioValue(constant) == 0
+    assert RelAcc.highFrequencyRatioValue(jittery) > 0
+    assert RelAcc.highFrequencyRatio(gesture, summaryShape) >= 0
+
+    assert RelAcc.strokeGroups([]) == []
+    assert len(RelAcc.strokeGroups(summaryPts)) == 2
+    assert RelAcc.strokeLengths(summaryPts)[0] > 0
+    assert RelAcc.strokeDurations(summaryPts) == [35, 30]
+    assert RelAcc.strokeLengthStdValue([p(0, 0, 0, 0)]) == 0
+    assert RelAcc.strokeLengthStd(gesture, summaryShape) > 0
+    assert RelAcc.meanStrokeDurationValue([]) == 0
+    assert RelAcc.meanStrokeDurationValue(summaryPts) == pytest.approx(32.5)
+    assert RelAcc.meanStrokeDuration(gesture, summaryShape) > 0
 
 
 def test_production_time_and_speed_arrays():
@@ -162,6 +281,20 @@ def test_snake_case_aliases_match_original_api():
     _, _, _, gesture, summaryShape = _fixture_shapes()
     assert RelAcc.shape_error(gesture, summaryShape) == RelAcc.shapeError(gesture, summaryShape)
     assert RelAcc.length_error(gesture, summaryShape) == RelAcc.lengthError(gesture, summaryShape)
+    assert RelAcc.corner_slowdown(gesture, summaryShape) == RelAcc.cornerSlowdown(gesture, summaryShape)
+    assert RelAcc.two_thirds_power_law_r2(gesture, summaryShape) == RelAcc.twoThirdsPowerLawR2(gesture, summaryShape)
+    assert RelAcc.high_frequency_ratio(gesture, summaryShape) == RelAcc.highFrequencyRatio(gesture, summaryShape)
+    assert RelAcc.stroke_length_std(gesture, summaryShape) == RelAcc.strokeLengthStd(gesture, summaryShape)
+    assert RelAcc.mean_stroke_duration(gesture, summaryShape) == RelAcc.meanStrokeDuration(gesture, summaryShape)
+    assert RelAcc.curvature_array(gesture.points) == RelAcc.curvatureArray(gesture.points)
+    assert RelAcc.corner_slowdown_ratio(gesture.points) == RelAcc.cornerSlowdownRatio(gesture.points)
+    assert RelAcc.two_thirds_power_law_r2_value(gesture.points) == RelAcc.twoThirdsPowerLawR2Value(gesture.points)
+    assert RelAcc.high_frequency_ratio_value(gesture.points) == RelAcc.highFrequencyRatioValue(gesture.points)
+    assert RelAcc.stroke_groups(gesture.points) == RelAcc.strokeGroups(gesture.points)
+    assert RelAcc.stroke_lengths(gesture.points) == RelAcc.strokeLengths(gesture.points)
+    assert RelAcc.stroke_durations(gesture.points) == RelAcc.strokeDurations(gesture.points)
+    assert RelAcc.stroke_length_std_value(gesture.points) == RelAcc.strokeLengthStdValue(gesture.points)
+    assert RelAcc.mean_stroke_duration_value(gesture.points) == RelAcc.meanStrokeDurationValue(gesture.points)
     assert RelAcc.stroke_order_error(gesture, summaryShape) == RelAcc.strokeOrderError(gesture, summaryShape)
     assert RelAcc.num_strokes(gesture) == RelAcc.numStrokes(gesture)
     assert RelAcc.dtw_distance(gesture, summaryShape) == RelAcc.dtwDistance(gesture, summaryShape)
