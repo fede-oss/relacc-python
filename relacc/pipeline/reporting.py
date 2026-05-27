@@ -276,14 +276,14 @@ def _seed_for_group(
 
 def _select_entries(
     entries: Sequence[ReportingEntry],
-    sample_limit: int,
+    sample_limit: int | None,
     random_seed: int | str | None,
     source: str,
     dataset_key: str,
     class_key: str,
 ) -> Tuple[ReportingEntry, ...]:
     sorted_entries = tuple(sorted(entries, key=lambda entry: entry.key))
-    if len(sorted_entries) <= sample_limit:
+    if sample_limit is None or len(sorted_entries) <= sample_limit:
         return sorted_entries
 
     if random_seed is None:
@@ -299,12 +299,12 @@ def discover_reporting_sample_groups(
     candidate_input: str,
     group_by: str = GROUP_BY_FILENAME_LABEL,
     class_scheme: str = CLASS_SCHEME_AUTO,
-    sample_limit: int = DEFAULT_SAMPLE_LIMIT,
+    sample_limit: int | None = DEFAULT_SAMPLE_LIMIT,
     random_seed: int | str | None = None,
 ) -> Tuple[ReportingSampleGroup, ...]:
     normalized_group_by = _normalize_group_by(group_by)
     normalized_class_scheme = _normalize_class_scheme(class_scheme)
-    selected_limit = _validate_sample_limit(sample_limit)
+    selected_limit = None if sample_limit is None else _validate_sample_limit(sample_limit)
     reference_groups = _group_entries_by_dataset_class(
         load_reporting_entries(
             reference_input,
@@ -425,6 +425,19 @@ def select_reporting_samples(
     }
 
 
+from .reporting_raw import (  # noqa: E402
+    BASELINE_PAIR_TYPE,
+    CANDIDATE_PAIR_TYPE,
+    RAW_BASELINE_PAIRS_FILENAME,
+    RAW_CANDIDATE_PAIRS_FILENAME,
+    RAW_COMPARISON_COLUMNS,
+    build_raw_comparison_tables,
+    export_raw_comparison_tables,
+    format_raw_comparison_rows_csv,
+    write_raw_comparison_exports,
+)
+
+
 __all__ = [
     "CANDIDATE_SOURCE",
     "CLASS_SCHEME_AUTO",
@@ -434,16 +447,25 @@ __all__ = [
     "DEFAULT_CANDIDATE_SOURCE_NAME",
     "DEFAULT_REFERENCE_SOURCE_NAME",
     "DEFAULT_SAMPLE_LIMIT",
+    "BASELINE_PAIR_TYPE",
+    "CANDIDATE_PAIR_TYPE",
     "GROUP_BY_FILENAME_LABEL",
     "GROUP_BY_MODES",
     "GROUP_BY_PARENT_DIR",
+    "RAW_BASELINE_PAIRS_FILENAME",
+    "RAW_CANDIDATE_PAIRS_FILENAME",
+    "RAW_COMPARISON_COLUMNS",
     "REFERENCE_SOURCE",
     "REPORTING_MODE",
     "ReportingEntry",
     "ReportingSampleGroup",
     "SOURCE_FOLDER_NAMES",
     "build_sample_manifest",
+    "build_raw_comparison_tables",
     "discover_reporting_sample_groups",
+    "export_raw_comparison_tables",
+    "format_raw_comparison_rows_csv",
     "load_reporting_entries",
     "select_reporting_samples",
+    "write_raw_comparison_exports",
 ]

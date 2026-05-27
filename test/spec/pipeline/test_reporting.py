@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from relacc.pipeline import reporting as Reporting
+from relacc.pipeline import reporting_raw as ReportingRaw
 
 
 def _write_csv(path: Path, offset=0):
@@ -342,3 +343,122 @@ def test_auto_class_scheme_reports_unsupported_filenames(tmp_path):
             str(reference_dir),
             str(candidate_dir),
         )
+
+
+def test_build_raw_comparison_tables_preserves_pair_directions(monkeypatch):
+    group = Reporting.ReportingSampleGroup(
+        dataset_key="dataset-a",
+        class_key="arrow",
+        reference_entries=(
+            Reporting.ReportingEntry("r1.csv", "/tmp/r1.csv", "dataset-a", "arrow", ["r1"]),
+            Reporting.ReportingEntry("r2.csv", "/tmp/r2.csv", "dataset-a", "arrow", ["r2"]),
+        ),
+        candidate_entries=(
+            Reporting.ReportingEntry("c1.csv", "/tmp/c1.csv", "dataset-a", "arrow", ["c1"]),
+        ),
+    )
+    values_by_points = {
+        ("r1", "r2"): 10.0,
+        ("r2", "r1"): 20.0,
+        ("r1", "c1"): 30.0,
+        ("r2", "c1"): 40.0,
+    }
+
+    def fake_compute_pair_metrics(reference_points, candidate_points, *args, **kwargs):
+        return {
+            "shapeError": values_by_points[
+                (reference_points[0], candidate_points[0])
+            ]
+        }
+
+    monkeypatch.setattr(
+        ReportingRaw,
+        "compute_pair_metrics_from_points",
+        fake_compute_pair_metrics,
+    )
+    monkeypatch.setattr(ReportingRaw, "sampling_rate_for_sets", lambda point_sets, rate: 24)
+
+    payload = Reporting.build_raw_comparison_tables(
+        [group],
+        metric_names=["shapeError"],
+        reference_source_name="human",
+        candidate_source_name="generated",
+    )
+
+    baseline_rows = payload["rawBaselinePairs"]
+    candidate_rows = payload["rawCandidatePairs"]
+    assert [row["direction"] for row in baseline_rows] == ["forward", "backward"]
+    assert [row["value"] for row in baseline_rows] == [10.0, 20.0]
+    assert [row["value"] for row in candidate_rows] == [30.0, 40.0]
+    assert baseline_rows[0]["referenceSourceRole"] == "reference"
+    assert baseline_rows[0]["candidateSourceRole"] == "reference"
+    assert candidate_rows[0]["candidateSourceRole"] == "candidate"
+    assert payload["metadata"]["baselineRowCount"] == 2
+    assert payload["metadata"]["candidateRowCount"] == 2
+
+
+def test_export_raw_comparison_tables_writes_sampled_and_full_outputs(
+    monkeypatch,
+    tmp_path,
+):
+    reference_dir = tmp_path / "reference"
+    candidate_dir = tmp_path / "candidate"
+    for index in range(3):
+        _write_csv(reference_dir / f"r{index:02d}-arrow-01.csv", index)
+        _write_csv(candidate_dir / f"c{index:02d}-arrow-01.csv", index + 10)
+
+    monkeypatch.setattr(
+        ReportingRaw,
+        "compute_pair_metrics_from_points",
+        lambda *args, **kwargs: {"shapeError": 1.25},
+    )
+    load_calls = []
+    original_load_reporting_entries = Reporting.load_reporting_entries
+
+    def counted_load_reporting_entries(*args, **kwargs):
+        load_calls.append(args[0])
+        return original_load_reporting_entries(*args, **kwargs)
+
+    monkeypatch.setattr(
+        Reporting,
+        "load_reporting_entries",
+        counted_load_reporting_entries,
+    )
+
+    sampled_output_dir = tmp_path / "sampled-output"
+    sampled_payload = Reporting.export_raw_comparison_tables(
+        str(reference_dir),
+        str(candidate_dir),
+        output_dir=sampled_output_dir,
+        sample_limit=2,
+        metric_names=["shapeError"],
+    )
+
+    assert sampled_payload["metadata"]["effectiveSampleLimit"] == 2
+    assert sampled_payload["metadata"]["baselineRowCount"] == 2
+    assert sampled_payload["metadata"]["candidateRowCount"] == 4
+    assert (sampled_output_dir / "raw_baseline_pairs.csv").exists()
+    assert (sampled_output_dir / "raw_candidate_pairs.csv").exists()
+    assert (
+        sampled_output_dir / "raw_baseline_pairs.csv"
+    ).read_text(encoding="utf-8").splitlines()[0] == ",".join(
+        Reporting.RAW_COMPARISON_COLUMNS
+    )
+
+    full_payload = Reporting.export_raw_comparison_tables(
+        str(reference_dir),
+        str(candidate_dir),
+        sample_limit=None,
+        metric_names=["shapeError"],
+    )
+
+    assert full_payload["metadata"]["sampleLimit"] is None
+    assert full_payload["metadata"]["effectiveSampleLimit"] is None
+    assert full_payload["metadata"]["baselineRowCount"] == 6
+    assert full_payload["metadata"]["candidateRowCount"] == 9
+    assert load_calls == [
+        str(reference_dir),
+        str(candidate_dir),
+        str(reference_dir),
+        str(candidate_dir),
+    ]

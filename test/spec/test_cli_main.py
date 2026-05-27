@@ -57,6 +57,8 @@ def test_main_json_stats_output(tmp_path):
     assert payload["metadata"]["args"]["exact_dtw"] is False
     assert payload["metadata"]["args"]["dtw_window"] is None
     assert "dtwDistance" in payload["results"]
+    assert "cornerSlowdown" in payload["results"]
+    assert "meanStrokeDuration" in payload["results"]
 
 
 def test_main_json_stats_output_with_exact_dtw(tmp_path):

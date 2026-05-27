@@ -4,7 +4,13 @@ __pycache__/
 .coverage
 .DS_Store
 output/
+pairwise-report-output/
+pairwise-smoke-output/
+raton-canvas/
+raton-class-overlay.png
+raton-sample-canvas.png
+raw-export-smoke/
+report-output/
+report-output-16-samples-only/
 relacc_python.egg-info/
-
 *.md
-
