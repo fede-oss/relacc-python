@@ -10,6 +10,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, Iterable, List, Sequence
 
+from scipy.stats import wasserstein_distance
+
 from relacc.dtw import DEFAULT_EXACT_RATE_THRESHOLD, recommended_window
 from relacc.gestures.gesture import Gesture
 from relacc.gestures.ptaligntype import PtAlignType
@@ -96,6 +98,36 @@ STATS_COLUMNS = (
     "sd",
     "min",
     "max",
+)
+
+DISTRIBUTION_COLUMNS = (
+    "runId",
+    "source",
+    "dataset",
+    "variant",
+    "classKey",
+    "metric",
+    "baselineN",
+    "baselineFiniteN",
+    "baselineMean",
+    "baselineMdn",
+    "baselineSd",
+    "baselineMin",
+    "baselineMax",
+    "candidateN",
+    "candidateFiniteN",
+    "candidateMean",
+    "candidateMdn",
+    "candidateSd",
+    "candidateMin",
+    "candidateMax",
+    "wassersteinDistance",
+    "meanDelta",
+    "meanRatio",
+    "mdnDelta",
+    "mdnRatio",
+    "sdDelta",
+    "sdRatio",
 )
 
 
@@ -326,6 +358,99 @@ def _summary_stats(
             }
         )
     return stats_rows
+
+
+def _finite_metric_values(rows: Sequence[Dict[str, object]], metric_name: str) -> List[float]:
+    values = []
+    for row in rows:
+        value = row.get(metric_name)
+        if isinstance(value, (int, float)) and math.isfinite(float(value)):
+            values.append(float(value))
+    return values
+
+
+def _ratio(numerator: float | None, denominator: float | None):
+    if numerator is None or denominator in (None, 0):
+        return None
+    return numerator / denominator
+
+
+def _delta(left: float | None, right: float | None):
+    if left is None or right is None:
+        return None
+    return left - right
+
+
+def _lightweight_distribution_rows(
+    candidate_rows: Sequence[Dict[str, object]],
+    candidate_stats_rows: Sequence[Dict[str, object]],
+    baseline_rows: Sequence[Dict[str, object]],
+    baseline_stats_rows: Sequence[Dict[str, object]],
+    metric_names: Sequence[str],
+    round_precision: int | None,
+) -> List[Dict[str, object]]:
+    baseline_stats_by_metric = {row["metric"]: row for row in baseline_stats_rows}
+    candidate_stats_by_metric = {row["metric"]: row for row in candidate_stats_rows}
+
+    def rounded(value):
+        if value is None:
+            return None
+        return MathUtil.roundTo(value, round_precision)
+
+    distribution_rows = []
+    for metric_name in metric_names:
+        baseline_stats = baseline_stats_by_metric.get(metric_name)
+        candidate_stats = candidate_stats_by_metric.get(metric_name)
+        if baseline_stats is None or candidate_stats is None:
+            continue
+
+        baseline_values = _finite_metric_values(baseline_rows, metric_name)
+        candidate_values = _finite_metric_values(candidate_rows, metric_name)
+        wasserstein = (
+            float(wasserstein_distance(baseline_values, candidate_values))
+            if baseline_values and candidate_values
+            else None
+        )
+
+        baseline_mean = baseline_stats.get("mean")
+        candidate_mean = candidate_stats.get("mean")
+        baseline_mdn = baseline_stats.get("mdn")
+        candidate_mdn = candidate_stats.get("mdn")
+        baseline_sd = baseline_stats.get("sd")
+        candidate_sd = candidate_stats.get("sd")
+
+        distribution_rows.append(
+            {
+                "runId": candidate_stats.get("runId"),
+                "source": candidate_stats.get("source"),
+                "dataset": candidate_stats.get("dataset"),
+                "variant": candidate_stats.get("variant"),
+                "classKey": candidate_stats.get("classKey"),
+                "metric": metric_name,
+                "baselineN": baseline_stats.get("n"),
+                "baselineFiniteN": baseline_stats.get("finiteN"),
+                "baselineMean": baseline_mean,
+                "baselineMdn": baseline_mdn,
+                "baselineSd": baseline_sd,
+                "baselineMin": baseline_stats.get("min"),
+                "baselineMax": baseline_stats.get("max"),
+                "candidateN": candidate_stats.get("n"),
+                "candidateFiniteN": candidate_stats.get("finiteN"),
+                "candidateMean": candidate_mean,
+                "candidateMdn": candidate_mdn,
+                "candidateSd": candidate_sd,
+                "candidateMin": candidate_stats.get("min"),
+                "candidateMax": candidate_stats.get("max"),
+                "wassersteinDistance": rounded(wasserstein),
+                "meanDelta": rounded(_delta(candidate_mean, baseline_mean)),
+                "meanRatio": rounded(_ratio(candidate_mean, baseline_mean)),
+                "mdnDelta": rounded(_delta(candidate_mdn, baseline_mdn)),
+                "mdnRatio": rounded(_ratio(candidate_mdn, baseline_mdn)),
+                "sdDelta": rounded(_delta(candidate_sd, baseline_sd)),
+                "sdRatio": rounded(_ratio(candidate_sd, baseline_sd)),
+            }
+        )
+    return distribution_rows
 
 
 def _compare_class(
@@ -738,6 +863,7 @@ def main(argv=None):
         total_candidates=manifest["plannedCandidateCount"],
         total_runs=manifest["plannedRunCount"],
     )
+    all_distribution_rows: List[Dict[str, object]] = []
     print(
         (
             f"planned {manifest['plannedRunCount']} runs and "
@@ -795,6 +921,7 @@ def main(argv=None):
                 run_stats: List[Dict[str, object]] = []
                 run_baseline_rows: List[Dict[str, object]] = []
                 run_baseline_stats: List[Dict[str, object]] = []
+                run_distribution_rows: List[Dict[str, object]] = []
                 class_manifests = []
                 skipped_classes = []
 
@@ -888,11 +1015,25 @@ def main(argv=None):
                         baseline_stats_rows,
                         STATS_COLUMNS,
                     )
+                    class_distribution_rows = _lightweight_distribution_rows(
+                        rows,
+                        stats_rows,
+                        baseline_rows,
+                        baseline_stats_rows,
+                        metric_names,
+                        round_precision,
+                    )
+                    _write_csv(
+                        class_output_dir / "distribution.csv",
+                        class_distribution_rows,
+                        DISTRIBUTION_COLUMNS,
+                    )
 
                     run_rows.extend(rows)
                     run_stats.extend(stats_rows)
                     run_baseline_rows.extend(baseline_rows)
                     run_baseline_stats.extend(baseline_stats_rows)
+                    run_distribution_rows.extend(class_distribution_rows)
                     class_manifests.append(
                         {
                             **class_metadata,
@@ -902,6 +1043,7 @@ def main(argv=None):
                             "statsRows": len(stats_rows),
                             "baselineRows": len(baseline_rows),
                             "baselineStatsRows": len(baseline_stats_rows),
+                            "distributionRows": len(class_distribution_rows),
                         }
                     )
                     progress.finish_class(run_id, class_key, len(rows))
@@ -919,6 +1061,7 @@ def main(argv=None):
                     "statsRows": len(run_stats),
                     "baselineRows": len(run_baseline_rows),
                     "baselineStatsRows": len(run_baseline_stats),
+                    "distributionRows": len(run_distribution_rows),
                     "classes": class_manifests,
                     "skippedClasses": skipped_classes,
                 }
@@ -950,10 +1093,17 @@ def main(argv=None):
                     run_baseline_stats,
                     STATS_COLUMNS,
                 )
+                _write_csv(
+                    run_dir / "distribution.csv",
+                    run_distribution_rows,
+                    DISTRIBUTION_COLUMNS,
+                )
                 _write_json(run_dir / "manifest.json", run_manifest)
                 manifest["runs"].append(run_manifest)
+                all_distribution_rows.extend(run_distribution_rows)
                 progress.finish_run(run_id, len(run_rows))
 
+    _write_csv(output_root / "distribution.csv", all_distribution_rows, DISTRIBUTION_COLUMNS)
     _write_json(output_root / "manifest.json", manifest)
     return 0
 
