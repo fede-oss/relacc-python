@@ -412,6 +412,18 @@ def test_export_raw_comparison_tables_writes_sampled_and_full_outputs(
         "compute_pair_metrics_from_points",
         lambda *args, **kwargs: {"shapeError": 1.25},
     )
+    load_calls = []
+    original_load_reporting_entries = Reporting.load_reporting_entries
+
+    def counted_load_reporting_entries(*args, **kwargs):
+        load_calls.append(args[0])
+        return original_load_reporting_entries(*args, **kwargs)
+
+    monkeypatch.setattr(
+        Reporting,
+        "load_reporting_entries",
+        counted_load_reporting_entries,
+    )
 
     sampled_output_dir = tmp_path / "sampled-output"
     sampled_payload = Reporting.export_raw_comparison_tables(
@@ -441,5 +453,12 @@ def test_export_raw_comparison_tables_writes_sampled_and_full_outputs(
     )
 
     assert full_payload["metadata"]["sampleLimit"] is None
+    assert full_payload["metadata"]["effectiveSampleLimit"] is None
     assert full_payload["metadata"]["baselineRowCount"] == 6
     assert full_payload["metadata"]["candidateRowCount"] == 9
+    assert load_calls == [
+        str(reference_dir),
+        str(candidate_dir),
+        str(reference_dir),
+        str(candidate_dir),
+    ]

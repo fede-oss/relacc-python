@@ -30,7 +30,6 @@ from .reporting import (
     _validate_sample_limit,
     build_sample_manifest,
     discover_reporting_sample_groups,
-    load_reporting_entries,
 )
 
 
@@ -351,12 +350,7 @@ def export_raw_comparison_tables(
     if dtw_window is not None and exact_dtw:
         raise ValueError("--dtw-window cannot be combined with --exact-dtw.")
 
-    reference_entries = load_reporting_entries(reference_input, group_by, class_scheme)
-    candidate_entries = load_reporting_entries(candidate_input, group_by, class_scheme)
-    full_sample_limit = max(len(reference_entries), len(candidate_entries), 1)
-    selected_limit = (
-        full_sample_limit if sample_limit is None else _validate_sample_limit(sample_limit)
-    )
+    selected_limit = None if sample_limit is None else _validate_sample_limit(sample_limit)
     sample_groups = discover_reporting_sample_groups(
         reference_input,
         candidate_input,

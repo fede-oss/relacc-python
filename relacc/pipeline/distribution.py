@@ -162,6 +162,15 @@ def _candidate_reference_pairs(
 def _summary_stats(values: Sequence[float], round_precision: int | None):
     finite_values = [value for value in values if math.isfinite(value)]
     n = len(finite_values)
+    if n == 0:
+        return {
+            "mean": MathUtil.roundTo(float("nan"), round_precision),
+            "mdn": MathUtil.roundTo(float("nan"), round_precision),
+            "sd": MathUtil.roundTo(float("nan"), round_precision),
+            "min": MathUtil.roundTo(float("nan"), round_precision),
+            "max": MathUtil.roundTo(float("nan"), round_precision),
+            "n": 0,
+        }
     mean = statistics.fmean(finite_values)
     mdn = statistics.median(finite_values)
     sd = statistics.stdev(finite_values) if n > 1 else 0.0

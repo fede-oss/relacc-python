@@ -276,14 +276,14 @@ def _seed_for_group(
 
 def _select_entries(
     entries: Sequence[ReportingEntry],
-    sample_limit: int,
+    sample_limit: int | None,
     random_seed: int | str | None,
     source: str,
     dataset_key: str,
     class_key: str,
 ) -> Tuple[ReportingEntry, ...]:
     sorted_entries = tuple(sorted(entries, key=lambda entry: entry.key))
-    if len(sorted_entries) <= sample_limit:
+    if sample_limit is None or len(sorted_entries) <= sample_limit:
         return sorted_entries
 
     if random_seed is None:
@@ -299,12 +299,12 @@ def discover_reporting_sample_groups(
     candidate_input: str,
     group_by: str = GROUP_BY_FILENAME_LABEL,
     class_scheme: str = CLASS_SCHEME_AUTO,
-    sample_limit: int = DEFAULT_SAMPLE_LIMIT,
+    sample_limit: int | None = DEFAULT_SAMPLE_LIMIT,
     random_seed: int | str | None = None,
 ) -> Tuple[ReportingSampleGroup, ...]:
     normalized_group_by = _normalize_group_by(group_by)
     normalized_class_scheme = _normalize_class_scheme(class_scheme)
-    selected_limit = _validate_sample_limit(sample_limit)
+    selected_limit = None if sample_limit is None else _validate_sample_limit(sample_limit)
     reference_groups = _group_entries_by_dataset_class(
         load_reporting_entries(
             reference_input,
