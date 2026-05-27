@@ -65,6 +65,9 @@ def test_run_all_pairwise_reports_writes_lightweight_human_baseline(tmp_path):
     pairwise_rows = _read_csv(class_dir / "pairwise.csv")
     baseline_rows = _read_csv(class_dir / "baseline.csv")
     baseline_stats_rows = _read_csv(class_dir / "baseline_stats.csv")
+    distribution_rows = _read_csv(class_dir / "distribution.csv")
+    run_distribution_rows = _read_csv(run_dir / "distribution.csv")
+    top_distribution_rows = _read_csv(output_dir / "distribution.csv")
     run_manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
 
     assert len(pairwise_rows) == 1
@@ -77,6 +80,13 @@ def test_run_all_pairwise_reports_writes_lightweight_human_baseline(tmp_path):
         "s02-arrow-fast-t02",
     ]
     assert len(baseline_stats_rows) > 0
+    assert len(distribution_rows) == len(baseline_stats_rows)
+    assert distribution_rows[0]["wassersteinDistance"] != ""
+    assert distribution_rows[0]["baselineMean"] == baseline_stats_rows[0]["mean"]
+    assert len(run_distribution_rows) == len(distribution_rows)
+    assert top_distribution_rows == run_distribution_rows
     assert run_manifest["pairwiseRows"] == 1
     assert run_manifest["baselineRows"] == 2
+    assert run_manifest["distributionRows"] == len(distribution_rows)
     assert run_manifest["classes"][0]["baselineMode"] == "human-summary-baseline"
+    assert run_manifest["classes"][0]["distributionRows"] == len(distribution_rows)
