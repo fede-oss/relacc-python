@@ -5,6 +5,9 @@ __pycache__/
 .DS_Store
 output/
 pairwise-report-output/
+pairwise-report-output*/
+pairwise-report-output-OLD*/
+
 pairwise-smoke-output/
 raton-canvas/
 raton-class-overlay.png
@@ -14,3 +17,4 @@ report-output/
 report-output-16-samples-only/
 relacc_python.egg-info/
 *.md
+
