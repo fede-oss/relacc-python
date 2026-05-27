@@ -61,6 +61,27 @@ PAIRWISE_COLUMNS = (
     *METRIC_NAMES,
 )
 
+BASELINE_COLUMNS = (
+    "runId",
+    "source",
+    "dataset",
+    "variant",
+    "classKey",
+    "sampleKey",
+    "sampleFile",
+    "referenceInput",
+    "mode",
+    "referenceCount",
+    "rate",
+    "requestedRate",
+    "alignment",
+    "summary",
+    "popular",
+    "dtwWindow",
+    "exactDtw",
+    *METRIC_NAMES,
+)
+
 STATS_COLUMNS = (
     "runId",
     "source",
@@ -404,6 +425,122 @@ def _compare_class(
     return rows, stats_rows, metadata
 
 
+def _baseline_stats(
+    rows: Sequence[Dict[str, object]],
+    run_id: str,
+    source_name: str,
+    dataset_name: str,
+    variant: str | None,
+    class_key: str,
+    round_precision: int | None,
+):
+    return _summary_stats(
+        rows,
+        run_id,
+        source_name,
+        dataset_name,
+        variant,
+        class_key,
+        round_precision,
+    )
+
+
+def _compare_human_baseline_class(
+    reference_entries: Sequence[ReportingEntry],
+    run_id: str,
+    source_name: str,
+    dataset_name: str,
+    variant: str | None,
+    class_key: str,
+    reference_input: Path,
+    rate: int | None,
+    alignment: int,
+    summary_shape: str | None,
+    popular: bool,
+    round_precision: int | None,
+    metric_names: Sequence[str],
+    dtw_window: int | None,
+    exact_dtw: bool,
+) -> tuple[list[dict], list[dict], dict]:
+    baseline_source_name = "human"
+    reference_points = [entry.points for entry in reference_entries]
+    effective_rate = sampling_rate_for_sets(reference_points, rate)
+    selected_dtw_window = _effective_dtw_window(effective_rate, dtw_window, exact_dtw)
+    summary_label = f"{dataset_name}/{class_key}/human-summary"
+    reference_gestures = [
+        Gesture(entry.points, summary_label, effective_rate)
+        for entry in reference_entries
+    ]
+    reference_summary = SummaryGesture(
+        reference_gestures,
+        alignment,
+        summary_shape,
+        popular,
+    )
+
+    rows = []
+    for reference_entry, reference_gesture in zip(reference_entries, reference_gestures):
+        metric_values = compute_metrics(
+            reference_gesture,
+            reference_summary,
+            round_precision=round_precision,
+            metric_names=metric_names,
+            dtw_window=selected_dtw_window,
+        )
+        row = {
+            "runId": run_id,
+            "source": baseline_source_name,
+            "dataset": dataset_name,
+            "variant": variant,
+            "classKey": class_key,
+            "sampleKey": Path(reference_entry.key).with_suffix("").as_posix(),
+            "sampleFile": reference_entry.path,
+            "referenceInput": str(reference_input),
+            "mode": "human-summary-baseline",
+            "referenceCount": len(reference_entries),
+            "rate": effective_rate,
+            "requestedRate": rate,
+            "alignment": alignment,
+            "summary": summary_shape,
+            "popular": bool(popular),
+            "dtwWindow": selected_dtw_window,
+            "exactDtw": bool(exact_dtw),
+        }
+        row.update(metric_values)
+        rows.append(row)
+
+    stats_rows = _baseline_stats(
+        rows,
+        run_id,
+        baseline_source_name,
+        dataset_name,
+        variant,
+        class_key,
+        round_precision,
+    )
+    metadata = {
+        "runId": run_id,
+        "source": source_name,
+        "baselineSource": baseline_source_name,
+        "dataset": dataset_name,
+        "variant": variant,
+        "classKey": class_key,
+        "mode": "human-summary-baseline",
+        "referenceCount": len(reference_entries),
+        "baselineRows": len(rows),
+        "rate": effective_rate,
+        "requestedRate": rate,
+        "alignment": alignment,
+        "summary": summary_shape,
+        "popular": bool(popular),
+        "roundPrecision": round_precision,
+        "metricNames": list(metric_names),
+        "dtwWindow": selected_dtw_window,
+        "exactDtw": bool(exact_dtw),
+    }
+    return rows, stats_rows, metadata
+
+
 def _output_run_dir(output_root: Path, source_name: str, dataset_name: str, variant: str | None):
     run_dir = output_root / source_name / dataset_name
     if variant:
@@ -443,9 +580,9 @@ def _count_run_candidates(
 def _build_parser():
     parser = argparse.ArgumentParser(
         description=(
-            "Run all-files human-summary pairwise comparisons for every generated "
-            "source/dataset/class. This intentionally does not compute distribution "
-            "cross-products."
+            "Run all-files human-summary comparisons for every generated "
+            "source/dataset/class, plus a lightweight human-summary baseline. "
+            "This intentionally does not compute distribution cross-products."
         )
     )
     parser.add_argument(
@@ -536,6 +673,7 @@ def main(argv=None):
         "datasetsRoot": str(datasets_root),
         "outputDir": str(output_root),
         "mode": "all-files-reference-summary-pairwise",
+        "baselineMode": "human-summary-baseline",
         "rate": rate,
         "roundPrecision": round_precision,
         "alignment": alignment,
@@ -655,6 +793,8 @@ def main(argv=None):
 
                 run_rows: List[Dict[str, object]] = []
                 run_stats: List[Dict[str, object]] = []
+                run_baseline_rows: List[Dict[str, object]] = []
+                run_baseline_stats: List[Dict[str, object]] = []
                 class_manifests = []
                 skipped_classes = []
 
@@ -698,6 +838,25 @@ def main(argv=None):
                         dtw_window,
                         bool(opt.exact_dtw),
                     )
+                    baseline_rows, baseline_stats_rows, baseline_metadata = (
+                        _compare_human_baseline_class(
+                            class_references,
+                            run_id,
+                            source_name,
+                            dataset_name,
+                            variant,
+                            class_key,
+                            reference_input,
+                            rate,
+                            alignment,
+                            summary_shape,
+                            bool(opt.popular),
+                            round_precision,
+                            metric_names,
+                            dtw_window,
+                            bool(opt.exact_dtw),
+                        )
+                    )
 
                     safe_class_key = _safe_path_part(class_key)
                     class_output_dir = class_dir / safe_class_key
@@ -711,15 +870,38 @@ def main(argv=None):
                     )
                     _write_csv(class_output_dir / "pairwise.csv", rows, PAIRWISE_COLUMNS)
                     _write_csv(class_output_dir / "stats.csv", stats_rows, STATS_COLUMNS)
+                    _write_json(
+                        class_output_dir / "baseline.json",
+                        {
+                            "metadata": baseline_metadata,
+                            "baseline": baseline_rows,
+                            "stats": baseline_stats_rows,
+                        },
+                    )
+                    _write_csv(
+                        class_output_dir / "baseline.csv",
+                        baseline_rows,
+                        BASELINE_COLUMNS,
+                    )
+                    _write_csv(
+                        class_output_dir / "baseline_stats.csv",
+                        baseline_stats_rows,
+                        STATS_COLUMNS,
+                    )
 
                     run_rows.extend(rows)
                     run_stats.extend(stats_rows)
+                    run_baseline_rows.extend(baseline_rows)
+                    run_baseline_stats.extend(baseline_stats_rows)
                     class_manifests.append(
                         {
                             **class_metadata,
+                            "baselineMode": baseline_metadata["mode"],
                             "outputDir": str(class_output_dir),
                             "pairwiseRows": len(rows),
                             "statsRows": len(stats_rows),
+                            "baselineRows": len(baseline_rows),
+                            "baselineStatsRows": len(baseline_stats_rows),
                         }
                     )
                     progress.finish_class(run_id, class_key, len(rows))
@@ -735,6 +917,8 @@ def main(argv=None):
                     "classCount": len(class_manifests),
                     "pairwiseRows": len(run_rows),
                     "statsRows": len(run_stats),
+                    "baselineRows": len(run_baseline_rows),
+                    "baselineStatsRows": len(run_baseline_stats),
                     "classes": class_manifests,
                     "skippedClasses": skipped_classes,
                 }
@@ -749,6 +933,23 @@ def main(argv=None):
                 )
                 _write_csv(run_dir / "pairwise.csv", run_rows, PAIRWISE_COLUMNS)
                 _write_csv(run_dir / "stats.csv", run_stats, STATS_COLUMNS)
+                _write_json(
+                    run_dir / "baseline.json",
+                    {
+                        "metadata": {
+                            **run_manifest,
+                            "mode": "human-summary-baseline",
+                        },
+                        "baseline": run_baseline_rows,
+                        "stats": run_baseline_stats,
+                    },
+                )
+                _write_csv(run_dir / "baseline.csv", run_baseline_rows, BASELINE_COLUMNS)
+                _write_csv(
+                    run_dir / "baseline_stats.csv",
+                    run_baseline_stats,
+                    STATS_COLUMNS,
+                )
                 _write_json(run_dir / "manifest.json", run_manifest)
                 manifest["runs"].append(run_manifest)
                 progress.finish_run(run_id, len(run_rows))

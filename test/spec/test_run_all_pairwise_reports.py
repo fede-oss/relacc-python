@@ -1,0 +1,82 @@
+import csv
+import json
+from pathlib import Path
+
+import run_all_pairwise_reports as PairwiseReports
+
+
+def _write_csv(path: Path, offset=0):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(
+            [
+                "stroke_id x y time is_writing",
+                f"0 {10 + offset} 20 0 1",
+                f"0 {12 + offset} 22 10 1",
+                f"1 {14 + offset} 24 20 1",
+                f"1 {16 + offset} 25 30 1",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+def _read_csv(path: Path):
+    return list(csv.DictReader(path.read_text(encoding="utf-8").splitlines()))
+
+
+def test_run_all_pairwise_reports_writes_lightweight_human_baseline(tmp_path):
+    datasets_root = tmp_path / "datasets"
+    output_dir = tmp_path / "report"
+
+    _write_csv(
+        datasets_root / "humans" / "1dollar" / "realTO" / "s01-arrow-fast-t01.csv",
+        0,
+    )
+    _write_csv(
+        datasets_root / "humans" / "1dollar" / "realTO" / "s02-arrow-fast-t02.csv",
+        1,
+    )
+    _write_csv(
+        datasets_root / "generated" / "1dollar" / "syntTO" / "g01-arrow-fast-t01.csv",
+        2,
+    )
+
+    assert (
+        PairwiseReports.main(
+            [
+                "--datasets-root",
+                str(datasets_root),
+                "--output-dir",
+                str(output_dir),
+                "--datasets",
+                "1dollar",
+                "--sources",
+                "generated",
+                "--rate",
+                "8",
+            ]
+        )
+        == 0
+    )
+
+    run_dir = output_dir / "generated" / "1dollar" / "syntTO"
+    class_dir = run_dir / "classes" / "arrow"
+    pairwise_rows = _read_csv(class_dir / "pairwise.csv")
+    baseline_rows = _read_csv(class_dir / "baseline.csv")
+    baseline_stats_rows = _read_csv(class_dir / "baseline_stats.csv")
+    run_manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+
+    assert len(pairwise_rows) == 1
+    assert pairwise_rows[0]["mode"] == "reference-summary"
+    assert len(baseline_rows) == 2
+    assert {row["mode"] for row in baseline_rows} == {"human-summary-baseline"}
+    assert {row["source"] for row in baseline_rows} == {"human"}
+    assert [row["sampleKey"] for row in baseline_rows] == [
+        "s01-arrow-fast-t01",
+        "s02-arrow-fast-t02",
+    ]
+    assert len(baseline_stats_rows) > 0
+    assert run_manifest["pairwiseRows"] == 1
+    assert run_manifest["baselineRows"] == 2
+    assert run_manifest["classes"][0]["baselineMode"] == "human-summary-baseline"
