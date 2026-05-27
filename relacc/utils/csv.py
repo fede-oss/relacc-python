@@ -83,11 +83,10 @@ class CSVUtil:
     @staticmethod
     def _open_archive_payload(stack, file):
         archive = stack.enter_context(tarfile.open(file, mode="r:*"))
-        members = [member for member in archive if member.isfile()]
-        csv_members = [member for member in members if member.name.lower().endswith(".csv")]
-        candidates = csv_members + [member for member in members if member not in csv_members]
+        for member in archive:
+            if not member.isfile():
+                continue
 
-        for member in candidates:
             payload = archive.extractfile(member)
             if payload is None:
                 continue

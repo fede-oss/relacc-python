@@ -1,4 +1,5 @@
 import json
+import math
 from pathlib import Path
 
 import pytest
@@ -105,6 +106,41 @@ def test_run_one_vs_many_rejects_bad_rate_and_bad_inferred_label(tmp_path):
         OneVsMany.run_one_vs_many_comparison([str(f1)], label="arrow", rate=0)
 
 
+def test_run_one_vs_many_rejects_empty_input_and_conflicting_dtw_options(tmp_path):
+    f1 = tmp_path / "s1-arrow-t1.csv"
+    _write_csv(f1, _sample_rows(0))
+
+    with pytest.raises(ValueError, match="Please provide some gesture files"):
+        OneVsMany.run_one_vs_many_comparison([])
+
+    with pytest.raises(ValueError, match="cannot be combined"):
+        OneVsMany.run_one_vs_many_comparison(
+            [str(f1)],
+            dtw_window=2,
+            exact_dtw=True,
+        )
+
+
+def test_one_vs_many_summary_stats_handles_empty_and_non_finite_values():
+    empty_stats = OneVsMany.summary_stats([])
+    assert empty_stats == {
+        "mean": 0,
+        "mdn": 0,
+        "sd": 0,
+        "min": 0,
+        "max": 0,
+        "n": 0,
+    }
+
+    non_finite_stats = OneVsMany.summary_stats([1.0, float("nan")])
+    assert math.isnan(non_finite_stats["mean"])
+    assert math.isnan(non_finite_stats["mdn"])
+    assert math.isnan(non_finite_stats["sd"])
+    assert math.isnan(non_finite_stats["min"])
+    assert math.isnan(non_finite_stats["max"])
+    assert non_finite_stats["n"] == 2
+
+
 def test_one_vs_many_formatters_are_json_safe_and_csv_consistent(tmp_path):
     f1 = tmp_path / "s1-arrow-t1.csv"
     _write_csv(f1, _sample_rows(0))
@@ -123,3 +159,47 @@ def test_one_vs_many_formatters_are_json_safe_and_csv_consistent(tmp_path):
 
     xml_output = OneVsMany.format_one_vs_many_result(stats_payload, "xml")
     assert xml_output.startswith("<?xml")
+
+
+def test_one_vs_many_text_xml_and_legacy_metadata_formatters(tmp_path):
+    f1 = tmp_path / "s1-arrow-t1.csv"
+    _write_csv(f1, _sample_rows(0))
+
+    payload = OneVsMany.run_one_vs_many_comparison([str(f1)], stats=False)
+    legacy_args = OneVsMany.legacy_args_from_metadata(
+        payload,
+        output="samples.txt",
+        fmt="text",
+    )
+    assert legacy_args["output"] == "samples.txt"
+    assert legacy_args["format"] == "text"
+
+    json_payload = json.loads(
+        OneVsMany.format_one_vs_many_json(payload, legacy_args=legacy_args)
+    )
+    assert json_payload["metadata"]["args"]["format"] == "text"
+
+    samples_text = OneVsMany.format_one_vs_many_result(payload, "text")
+    assert samples_text.splitlines()[0].startswith("file shapeError")
+
+    sample_xml = OneVsMany.format_one_vs_many_result(
+        payload,
+        "xml",
+        legacy_args=legacy_args,
+    )
+    assert "<args" in sample_xml
+    assert "<sample " in sample_xml
+
+    non_finite_payload = {
+        **payload,
+        "metadata": {**payload["metadata"], "rate": float("inf")},
+    }
+    non_finite_xml = OneVsMany.format_one_vs_many_result(non_finite_payload, "xml")
+    assert 'rate=""' in non_finite_xml
+
+    stats_payload = OneVsMany.run_one_vs_many_comparison([str(f1)], stats=True)
+    stats_text = OneVsMany.format_one_vs_many_result(stats_payload, "txt")
+    assert stats_text.splitlines()[0] == "measure n mean mdn sd min max"
+
+    with pytest.raises(ValueError, match="Invalid output format"):
+        OneVsMany.format_one_vs_many_result(payload, "yaml")
