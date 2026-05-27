@@ -425,6 +425,19 @@ def select_reporting_samples(
     }
 
 
+from .reporting_raw import (  # noqa: E402
+    BASELINE_PAIR_TYPE,
+    CANDIDATE_PAIR_TYPE,
+    RAW_BASELINE_PAIRS_FILENAME,
+    RAW_CANDIDATE_PAIRS_FILENAME,
+    RAW_COMPARISON_COLUMNS,
+    build_raw_comparison_tables,
+    export_raw_comparison_tables,
+    format_raw_comparison_rows_csv,
+    write_raw_comparison_exports,
+)
+
+
 __all__ = [
     "CANDIDATE_SOURCE",
     "CLASS_SCHEME_AUTO",
@@ -434,16 +447,25 @@ __all__ = [
     "DEFAULT_CANDIDATE_SOURCE_NAME",
     "DEFAULT_REFERENCE_SOURCE_NAME",
     "DEFAULT_SAMPLE_LIMIT",
+    "BASELINE_PAIR_TYPE",
+    "CANDIDATE_PAIR_TYPE",
     "GROUP_BY_FILENAME_LABEL",
     "GROUP_BY_MODES",
     "GROUP_BY_PARENT_DIR",
+    "RAW_BASELINE_PAIRS_FILENAME",
+    "RAW_CANDIDATE_PAIRS_FILENAME",
+    "RAW_COMPARISON_COLUMNS",
     "REFERENCE_SOURCE",
     "REPORTING_MODE",
     "ReportingEntry",
     "ReportingSampleGroup",
     "SOURCE_FOLDER_NAMES",
     "build_sample_manifest",
+    "build_raw_comparison_tables",
     "discover_reporting_sample_groups",
+    "export_raw_comparison_tables",
+    "format_raw_comparison_rows_csv",
     "load_reporting_entries",
     "select_reporting_samples",
+    "write_raw_comparison_exports",
 ]
