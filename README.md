@@ -6,7 +6,7 @@ This repository contains a Python port of the Gesture Relative Accuracy Toolkit 
 
 - Python 3.11+
 - `matplotlib` (for canvas rendering CLI)
-- `scipy` (for distribution-comparison metrics)
+- `scipy` (for distribution-comparison metrics and distribution-shape diagnostics)
 
 ## Installation
 
@@ -278,6 +278,29 @@ Output shape:
 
 - JSON: `metadata` plus `results.perClass` and `results.overall`
 - CSV: one flattened row per `scope x gestureMetric`
+
+Each distribution row compares the human-human baseline values against the
+generated-human candidate values for one gesture metric. In addition to the
+distribution-distance metrics below, each side includes these summary fields:
+
+| Field | What it means |
+|---|---|
+| `mean` | Average value; useful as the simplest center estimate |
+| `mdn` / `q50` | Median value; more robust to outliers than the mean |
+| `sd` | Standard deviation; typical spread around the mean |
+| `variance` | Squared spread; useful for comparing dispersion mathematically |
+| `min`, `max` | Smallest and largest finite values |
+| `q05`, `q25`, `q75`, `q95` | Quantiles for lower/upper tails and interquartile range |
+| `skewness` | Whether the distribution leans toward unusually high or low values |
+| `kurtosis` | Tail heaviness/outlier-proneness compared with a normal-like shape |
+| `normalityPValue` | Lightweight normality diagnostic when there are at least 8 values; blank/NaN for tiny or constant samples |
+| `n` | Number of finite values used in the summary |
+
+In CSV output these fields are prefixed with `baseline` or `candidate`, for
+example `baselineQ95`, `candidateSkewness`, and `candidateKurtosis`. They are
+intended to support the report/histogram workflow: the mean and median show
+center, `sd`/`variance`/quantiles show spread and tails, and skewness/kurtosis
+help explain whether generated errors have asymmetric or outlier-heavy shapes.
 
 Examples:
 
