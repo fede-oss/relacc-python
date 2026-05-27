@@ -10,7 +10,9 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, Iterable, List, Sequence
 
-from scipy.stats import wasserstein_distance
+from scipy import stats as scipy_stats
+
+from relacc.distribution_metrics import compute_distribution_metrics
 
 from relacc.dtw import DEFAULT_EXACT_RATE_THRESHOLD, recommended_window
 from relacc.gestures.gesture import Gesture
@@ -112,16 +114,38 @@ DISTRIBUTION_COLUMNS = (
     "baselineMean",
     "baselineMdn",
     "baselineSd",
+    "baselineVariance",
     "baselineMin",
     "baselineMax",
+    "baselineQ05",
+    "baselineQ25",
+    "baselineQ50",
+    "baselineQ75",
+    "baselineQ95",
+    "baselineSkewness",
+    "baselineKurtosis",
+    "baselineNormalityPValue",
     "candidateN",
     "candidateFiniteN",
     "candidateMean",
     "candidateMdn",
     "candidateSd",
+    "candidateVariance",
     "candidateMin",
     "candidateMax",
+    "candidateQ05",
+    "candidateQ25",
+    "candidateQ50",
+    "candidateQ75",
+    "candidateQ95",
+    "candidateSkewness",
+    "candidateKurtosis",
+    "candidateNormalityPValue",
     "wassersteinDistance",
+    "normalizedWassersteinDistance",
+    "energyDistance",
+    "ksStatistic",
+    "ksPValue",
     "meanDelta",
     "meanRatio",
     "mdnDelta",
@@ -360,13 +384,113 @@ def _summary_stats(
     return stats_rows
 
 
+def _numeric_value(value):
+    if value is None or value == "":
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
 def _finite_metric_values(rows: Sequence[Dict[str, object]], metric_name: str) -> List[float]:
     values = []
     for row in rows:
-        value = row.get(metric_name)
-        if isinstance(value, (int, float)) and math.isfinite(float(value)):
-            values.append(float(value))
+        value = _numeric_value(row.get(metric_name))
+        if value is not None:
+            values.append(value)
     return values
+
+
+def _quantile(sorted_values: Sequence[float], fraction: float):
+    if not sorted_values:
+        return None
+    if len(sorted_values) == 1:
+        return sorted_values[0]
+    position = (len(sorted_values) - 1) * fraction
+    lower_index = math.floor(position)
+    upper_index = math.ceil(position)
+    if lower_index == upper_index:
+        return sorted_values[lower_index]
+    lower = sorted_values[lower_index]
+    upper = sorted_values[upper_index]
+    return lower + (upper - lower) * (position - lower_index)
+
+
+def _shape_statistic(values: Sequence[float], fn):
+    if len(values) < 3 or len(set(values)) <= 1:
+        return None
+    value = float(fn(values))
+    return value if math.isfinite(value) else None
+
+
+def _normality_p_value(values: Sequence[float]):
+    if len(values) < 8 or len(set(values)) <= 1:
+        return None
+    value = float(scipy_stats.normaltest(values).pvalue)
+    return value if math.isfinite(value) else None
+
+
+def _distribution_summary(values: Sequence[float], total_n: int, round_precision: int | None):
+    finite_values = list(values)
+
+    def rounded(value):
+        if value is None:
+            return None
+        return MathUtil.roundTo(value, round_precision)
+
+    if not finite_values:
+        return {
+            "n": total_n,
+            "finiteN": 0,
+            "mean": None,
+            "mdn": None,
+            "sd": None,
+            "variance": None,
+            "min": None,
+            "max": None,
+            "q05": None,
+            "q25": None,
+            "q50": None,
+            "q75": None,
+            "q95": None,
+            "skewness": None,
+            "kurtosis": None,
+            "normalityPValue": None,
+        }
+
+    sorted_values = sorted(finite_values)
+    variance = statistics.variance(finite_values) if len(finite_values) > 1 else 0.0
+    sd = statistics.stdev(finite_values) if len(finite_values) > 1 else 0.0
+    return {
+        "n": total_n,
+        "finiteN": len(finite_values),
+        "mean": rounded(statistics.fmean(finite_values)),
+        "mdn": rounded(statistics.median(finite_values)),
+        "sd": rounded(sd),
+        "variance": rounded(variance),
+        "min": rounded(min(finite_values)),
+        "max": rounded(max(finite_values)),
+        "q05": rounded(_quantile(sorted_values, 0.05)),
+        "q25": rounded(_quantile(sorted_values, 0.25)),
+        "q50": rounded(_quantile(sorted_values, 0.50)),
+        "q75": rounded(_quantile(sorted_values, 0.75)),
+        "q95": rounded(_quantile(sorted_values, 0.95)),
+        "skewness": rounded(
+            _shape_statistic(
+                finite_values,
+                lambda series: scipy_stats.skew(series, bias=False),
+            )
+        ),
+        "kurtosis": rounded(
+            _shape_statistic(
+                finite_values,
+                lambda series: scipy_stats.kurtosis(series, fisher=True, bias=False),
+            )
+        ),
+        "normalityPValue": rounded(_normality_p_value(finite_values)),
+    }
 
 
 def _ratio(numerator: float | None, denominator: float | None):
@@ -389,59 +513,90 @@ def _lightweight_distribution_rows(
     metric_names: Sequence[str],
     round_precision: int | None,
 ) -> List[Dict[str, object]]:
-    baseline_stats_by_metric = {row["metric"]: row for row in baseline_stats_rows}
-    candidate_stats_by_metric = {row["metric"]: row for row in candidate_stats_rows}
-
     def rounded(value):
         if value is None:
             return None
         return MathUtil.roundTo(value, round_precision)
 
     distribution_rows = []
+    metadata_row = candidate_rows[0] if candidate_rows else {}
     for metric_name in metric_names:
-        baseline_stats = baseline_stats_by_metric.get(metric_name)
-        candidate_stats = candidate_stats_by_metric.get(metric_name)
-        if baseline_stats is None or candidate_stats is None:
-            continue
-
         baseline_values = _finite_metric_values(baseline_rows, metric_name)
         candidate_values = _finite_metric_values(candidate_rows, metric_name)
-        wasserstein = (
-            float(wasserstein_distance(baseline_values, candidate_values))
-            if baseline_values and candidate_values
-            else None
+        baseline_stats = _distribution_summary(
+            baseline_values,
+            len(baseline_rows),
+            round_precision,
         )
-
+        candidate_stats = _distribution_summary(
+            candidate_values,
+            len(candidate_rows),
+            round_precision,
+        )
+        distribution_metrics = (
+            compute_distribution_metrics(
+                baseline_values,
+                candidate_values,
+                round_precision=round_precision,
+            )
+            if baseline_values and candidate_values
+            else {}
+        )
         baseline_mean = baseline_stats.get("mean")
         candidate_mean = candidate_stats.get("mean")
         baseline_mdn = baseline_stats.get("mdn")
         candidate_mdn = candidate_stats.get("mdn")
         baseline_sd = baseline_stats.get("sd")
         candidate_sd = candidate_stats.get("sd")
+        wasserstein = distribution_metrics.get("wassersteinDistance")
 
         distribution_rows.append(
             {
-                "runId": candidate_stats.get("runId"),
-                "source": candidate_stats.get("source"),
-                "dataset": candidate_stats.get("dataset"),
-                "variant": candidate_stats.get("variant"),
-                "classKey": candidate_stats.get("classKey"),
+                "runId": metadata_row.get("runId"),
+                "source": metadata_row.get("source"),
+                "dataset": metadata_row.get("dataset"),
+                "variant": metadata_row.get("variant"),
+                "classKey": metadata_row.get("classKey"),
                 "metric": metric_name,
                 "baselineN": baseline_stats.get("n"),
                 "baselineFiniteN": baseline_stats.get("finiteN"),
                 "baselineMean": baseline_mean,
                 "baselineMdn": baseline_mdn,
                 "baselineSd": baseline_sd,
+                "baselineVariance": baseline_stats.get("variance"),
                 "baselineMin": baseline_stats.get("min"),
                 "baselineMax": baseline_stats.get("max"),
+                "baselineQ05": baseline_stats.get("q05"),
+                "baselineQ25": baseline_stats.get("q25"),
+                "baselineQ50": baseline_stats.get("q50"),
+                "baselineQ75": baseline_stats.get("q75"),
+                "baselineQ95": baseline_stats.get("q95"),
+                "baselineSkewness": baseline_stats.get("skewness"),
+                "baselineKurtosis": baseline_stats.get("kurtosis"),
+                "baselineNormalityPValue": baseline_stats.get("normalityPValue"),
                 "candidateN": candidate_stats.get("n"),
                 "candidateFiniteN": candidate_stats.get("finiteN"),
                 "candidateMean": candidate_mean,
                 "candidateMdn": candidate_mdn,
                 "candidateSd": candidate_sd,
+                "candidateVariance": candidate_stats.get("variance"),
                 "candidateMin": candidate_stats.get("min"),
                 "candidateMax": candidate_stats.get("max"),
-                "wassersteinDistance": rounded(wasserstein),
+                "candidateQ05": candidate_stats.get("q05"),
+                "candidateQ25": candidate_stats.get("q25"),
+                "candidateQ50": candidate_stats.get("q50"),
+                "candidateQ75": candidate_stats.get("q75"),
+                "candidateQ95": candidate_stats.get("q95"),
+                "candidateSkewness": candidate_stats.get("skewness"),
+                "candidateKurtosis": candidate_stats.get("kurtosis"),
+                "candidateNormalityPValue": candidate_stats.get("normalityPValue"),
+                "wassersteinDistance": wasserstein,
+                "normalizedWassersteinDistance": rounded(
+                    _ratio(wasserstein, baseline_sd)
+                ),
+                "energyDistance": distribution_metrics.get("energyDistance"),
+                "ksStatistic": distribution_metrics.get("ksStatistic"),
+                "ksPValue": distribution_metrics.get("ksPValue"),
                 "meanDelta": rounded(_delta(candidate_mean, baseline_mean)),
                 "meanRatio": rounded(_ratio(candidate_mean, baseline_mean)),
                 "mdnDelta": rounded(_delta(candidate_mdn, baseline_mdn)),
