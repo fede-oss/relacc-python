@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 
 import pytest
@@ -263,6 +264,59 @@ def test_run_distribution_comparison_parent_dir_grouping_and_validation(tmp_path
         )
 
 
+def test_summary_stats_include_shape_quantiles_and_small_n_behavior():
+    stats = Distribution._summary_stats(
+        [1.0, 2.0, 3.0, 4.0, 5.0, float("inf"), float("nan")],
+        2,
+    )
+
+    expected_stats = {
+        "mean": 3.0,
+        "mdn": 3.0,
+        "sd": 1.58,
+        "variance": 2.5,
+        "min": 1.0,
+        "max": 5.0,
+        "q05": 1.2,
+        "q25": 2.0,
+        "q50": 3.0,
+        "q75": 4.0,
+        "q95": 4.8,
+        "skewness": 0.0,
+        "kurtosis": -1.2,
+        "n": 5,
+    }
+    for key, expected_value in expected_stats.items():
+        assert stats[key] == expected_value
+    assert math.isnan(stats["normalityPValue"])
+
+    one_value_stats = Distribution._summary_stats([2.0], 2)
+    assert one_value_stats["variance"] == 0.0
+    assert one_value_stats["q05"] == 2.0
+    assert one_value_stats["q95"] == 2.0
+    assert math.isnan(one_value_stats["skewness"])
+    assert math.isnan(one_value_stats["kurtosis"])
+
+
+def test_summary_stats_include_normality_p_value_when_sample_is_large_enough():
+    stats = Distribution._summary_stats([1, 2, 3, 4, 5, 6, 7, 8], 3)
+
+    assert stats["skewness"] == 0.0
+    assert stats["kurtosis"] == -1.2
+    assert stats["normalityPValue"] == 0.427
+
+
+def test_summary_stats_return_nan_shape_fields_for_empty_samples():
+    stats = Distribution._summary_stats([float("nan"), float("inf")], 2)
+
+    assert stats["n"] == 0
+    assert math.isnan(stats["variance"])
+    assert math.isnan(stats["q50"])
+    assert math.isnan(stats["skewness"])
+    assert math.isnan(stats["kurtosis"])
+    assert math.isnan(stats["normalityPValue"])
+
+
 def test_discover_class_comparisons_require_reference_and_candidate_csvs(tmp_path):
     reference_dir = tmp_path / "reference"
     candidate_dir = tmp_path / "candidate"
@@ -331,6 +385,17 @@ def test_format_distribution_rows_csv_with_escaping_and_overall_row():
 
     output = Distribution.format_distribution_rows_csv(results)
     lines = output.splitlines()
-    assert lines[0].startswith("scope,classKey,gestureMetric")
+    columns = lines[0].split(",")
+    assert columns[:3] == ["scope", "classKey", "gestureMetric"]
+    assert "baselineVariance" in columns
+    assert "baselineQ95" in columns
+    assert "baselineSkewness" in columns
+    assert "baselineKurtosis" in columns
+    assert "baselineNormalityPValue" in columns
+    assert "candidateVariance" in columns
+    assert "candidateQ95" in columns
+    assert "candidateSkewness" in columns
+    assert "candidateKurtosis" in columns
+    assert "candidateNormalityPValue" in columns
     assert '"arrow,fast"' in lines[1]
     assert lines[2].startswith("overall,")

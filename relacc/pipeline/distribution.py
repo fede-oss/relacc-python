@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import math
 import statistics
+import warnings
 from dataclasses import dataclass
 from itertools import combinations
 from typing import Dict, List, Sequence, Tuple
+
+from scipy import stats
 
 from relacc.distribution_metrics import DISTRIBUTION_METRIC_NAMES, compute_distribution_metrics
 from relacc.gestures.ptaligntype import PtAlignType
@@ -28,6 +31,23 @@ GROUP_BY_PARENT_DIR = "parent-dir"
 GROUP_BY_MODES: Tuple[str, str] = (
     GROUP_BY_FILENAME_LABEL,
     GROUP_BY_PARENT_DIR,
+)
+SUMMARY_STAT_NAMES: Tuple[str, ...] = (
+    "mean",
+    "mdn",
+    "sd",
+    "variance",
+    "min",
+    "max",
+    "q05",
+    "q25",
+    "q50",
+    "q75",
+    "q95",
+    "skewness",
+    "kurtosis",
+    "normalityPValue",
+    "n",
 )
 
 
@@ -159,30 +179,105 @@ def _candidate_reference_pairs(
     ]
 
 
+def _rounded_stat(value: float, round_precision: int | None):
+    return MathUtil.roundTo(value, round_precision) if math.isfinite(value) else value
+
+
+def _empty_summary_stats(round_precision: int | None):
+    return {
+        stat_name: (
+            0
+            if stat_name == "n"
+            else _rounded_stat(float("nan"), round_precision)
+        )
+        for stat_name in SUMMARY_STAT_NAMES
+    }
+
+
+def _quantile(sorted_values: Sequence[float], fraction: float) -> float:
+    if len(sorted_values) == 1:
+        return sorted_values[0]
+
+    position = (len(sorted_values) - 1) * fraction
+    lower_index = math.floor(position)
+    upper_index = math.ceil(position)
+    if lower_index == upper_index:
+        return sorted_values[int(position)]
+
+    lower = sorted_values[lower_index]
+    upper = sorted_values[upper_index]
+    return lower + ((upper - lower) * (position - lower_index))
+
+
+def _shape_statistic(
+    finite_values: Sequence[float],
+    minimum_n: int,
+    statistic_fn,
+    round_precision: int | None,
+) -> float:
+    if len(finite_values) < minimum_n:
+        return _rounded_stat(float("nan"), round_precision)
+    if len(set(finite_values)) == 1:
+        return _rounded_stat(0.0, round_precision)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        value = float(statistic_fn(finite_values))
+    return _rounded_stat(value, round_precision)
+
+
+def _normality_p_value(
+    finite_values: Sequence[float],
+    round_precision: int | None,
+) -> float:
+    if len(finite_values) < 8 or len(set(finite_values)) == 1:
+        return _rounded_stat(float("nan"), round_precision)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        _, p_value = stats.normaltest(finite_values)
+    return _rounded_stat(float(p_value), round_precision)
+
+
 def _summary_stats(values: Sequence[float], round_precision: int | None):
     finite_values = [value for value in values if math.isfinite(value)]
     n = len(finite_values)
     if n == 0:
-        return {
-            "mean": MathUtil.roundTo(float("nan"), round_precision),
-            "mdn": MathUtil.roundTo(float("nan"), round_precision),
-            "sd": MathUtil.roundTo(float("nan"), round_precision),
-            "min": MathUtil.roundTo(float("nan"), round_precision),
-            "max": MathUtil.roundTo(float("nan"), round_precision),
-            "n": 0,
-        }
+        return _empty_summary_stats(round_precision)
+
+    sorted_values = sorted(finite_values)
     mean = statistics.fmean(finite_values)
     mdn = statistics.median(finite_values)
     sd = statistics.stdev(finite_values) if n > 1 else 0.0
+    variance = statistics.variance(finite_values) if n > 1 else 0.0
     minimum = min(finite_values)
     maximum = max(finite_values)
 
     return {
-        "mean": MathUtil.roundTo(mean, round_precision),
-        "mdn": MathUtil.roundTo(mdn, round_precision),
-        "sd": MathUtil.roundTo(sd, round_precision),
-        "min": MathUtil.roundTo(minimum, round_precision),
-        "max": MathUtil.roundTo(maximum, round_precision),
+        "mean": _rounded_stat(mean, round_precision),
+        "mdn": _rounded_stat(mdn, round_precision),
+        "sd": _rounded_stat(sd, round_precision),
+        "variance": _rounded_stat(variance, round_precision),
+        "min": _rounded_stat(minimum, round_precision),
+        "max": _rounded_stat(maximum, round_precision),
+        "q05": _rounded_stat(_quantile(sorted_values, 0.05), round_precision),
+        "q25": _rounded_stat(_quantile(sorted_values, 0.25), round_precision),
+        "q50": _rounded_stat(_quantile(sorted_values, 0.50), round_precision),
+        "q75": _rounded_stat(_quantile(sorted_values, 0.75), round_precision),
+        "q95": _rounded_stat(_quantile(sorted_values, 0.95), round_precision),
+        "skewness": _shape_statistic(
+            finite_values,
+            3,
+            lambda series: stats.skew(series, bias=False),
+            round_precision,
+        ),
+        "kurtosis": _shape_statistic(
+            finite_values,
+            4,
+            lambda series: stats.kurtosis(series, fisher=True, bias=False),
+            round_precision,
+        ),
+        "normalityPValue": _normality_p_value(finite_values, round_precision),
         "n": n,
     }
 
@@ -397,13 +492,31 @@ def format_distribution_rows_csv(results: Dict[str, Sequence[Dict[str, object]]]
         "baselineMean",
         "baselineMdn",
         "baselineSd",
+        "baselineVariance",
         "baselineMin",
         "baselineMax",
+        "baselineQ05",
+        "baselineQ25",
+        "baselineQ50",
+        "baselineQ75",
+        "baselineQ95",
+        "baselineSkewness",
+        "baselineKurtosis",
+        "baselineNormalityPValue",
         "candidateMean",
         "candidateMdn",
         "candidateSd",
+        "candidateVariance",
         "candidateMin",
         "candidateMax",
+        "candidateQ05",
+        "candidateQ25",
+        "candidateQ50",
+        "candidateQ75",
+        "candidateQ95",
+        "candidateSkewness",
+        "candidateKurtosis",
+        "candidateNormalityPValue",
         *DISTRIBUTION_METRIC_NAMES,
     ]
     lines = [",".join(columns)]
@@ -423,13 +536,31 @@ def format_distribution_rows_csv(results: Dict[str, Sequence[Dict[str, object]]]
             "baselineMean": baseline_stats.get("mean"),
             "baselineMdn": baseline_stats.get("mdn"),
             "baselineSd": baseline_stats.get("sd"),
+            "baselineVariance": baseline_stats.get("variance"),
             "baselineMin": baseline_stats.get("min"),
             "baselineMax": baseline_stats.get("max"),
+            "baselineQ05": baseline_stats.get("q05"),
+            "baselineQ25": baseline_stats.get("q25"),
+            "baselineQ50": baseline_stats.get("q50"),
+            "baselineQ75": baseline_stats.get("q75"),
+            "baselineQ95": baseline_stats.get("q95"),
+            "baselineSkewness": baseline_stats.get("skewness"),
+            "baselineKurtosis": baseline_stats.get("kurtosis"),
+            "baselineNormalityPValue": baseline_stats.get("normalityPValue"),
             "candidateMean": candidate_stats.get("mean"),
             "candidateMdn": candidate_stats.get("mdn"),
             "candidateSd": candidate_stats.get("sd"),
+            "candidateVariance": candidate_stats.get("variance"),
             "candidateMin": candidate_stats.get("min"),
             "candidateMax": candidate_stats.get("max"),
+            "candidateQ05": candidate_stats.get("q05"),
+            "candidateQ25": candidate_stats.get("q25"),
+            "candidateQ50": candidate_stats.get("q50"),
+            "candidateQ75": candidate_stats.get("q75"),
+            "candidateQ95": candidate_stats.get("q95"),
+            "candidateSkewness": candidate_stats.get("skewness"),
+            "candidateKurtosis": candidate_stats.get("kurtosis"),
+            "candidateNormalityPValue": candidate_stats.get("normalityPValue"),
         }
         flat_row.update(distribution_metrics)
 
