@@ -1,3 +1,5 @@
+"""Defines the RelAcc metrics for comparing a gestures."""
+
 import math
 
 from scipy.stats import wasserstein_distance

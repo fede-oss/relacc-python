@@ -439,8 +439,26 @@ def plot_overview(overview_rows: list[dict], output_dir: Path) -> None:
     fig.savefig(output_dir / "overview" / "overall_source_ranking_core.png", dpi=180)
     plt.close(fig)
 
-    datasets = sorted({row["dataset"] for row in overview_rows})
-    labels = sorted({row["sourceLabel"] for row in overview_rows})
+    plot_grouped_bar(
+        overview_rows,
+        "coreLogRatioScore",
+        "Core abs log ratio, lower is better",
+        "Per-dataset generator comparison: core metrics",
+        output_dir / "grouped_bars" / "families" / "per_dataset_core_score_by_source.png",
+    )
+
+
+def plot_grouped_bar(
+    rows: list[dict],
+    value_field: str,
+    ylabel: str,
+    title: str,
+    path: Path,
+) -> None:
+    datasets = sorted({row["dataset"] for row in rows})
+    labels = sorted({row["sourceLabel"] for row in rows})
+    if not datasets or not labels:
+        return
     width = 0.8 / max(1, len(labels))
     fig, ax = plt.subplots(figsize=(max(11, len(datasets) * 0.9), 6))
     x = np.arange(len(datasets))
@@ -449,8 +467,8 @@ def plot_overview(overview_rows: list[dict], output_dir: Path) -> None:
         for dataset in datasets:
             values.append(
                 mean_or_none(
-                    row.get("coreLogRatioScore")
-                    for row in overview_rows
+                    row.get(value_field)
+                    for row in rows
                     if row["dataset"] == dataset and row["sourceLabel"] == label
                 )
             )
@@ -458,13 +476,53 @@ def plot_overview(overview_rows: list[dict], output_dir: Path) -> None:
         ax.bar(x + (idx - (len(labels) - 1) / 2) * width, y, width, label=label)
     ax.set_xticks(x)
     ax.set_xticklabels(datasets, rotation=45, ha="right")
-    ax.set_ylabel("Core abs log ratio, lower is better")
-    ax.set_title("Per-dataset generator comparison")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
     ax.legend(fontsize=8, ncols=2)
     fig.tight_layout()
-    ensure_dir(output_dir / "grouped_bars")
-    fig.savefig(output_dir / "grouped_bars" / "per_dataset_core_score_by_source.png", dpi=180)
+    ensure_dir(path.parent)
+    fig.savefig(path, dpi=180)
     plt.close(fig)
+
+
+def plot_grouped_bars_for_all_scores(
+    overview_rows: list[dict],
+    metric_rows: list[dict],
+    output_dir: Path,
+) -> None:
+    for family in METRIC_FAMILIES:
+        plot_grouped_bar(
+            overview_rows,
+            f"{family}LogRatioScore",
+            f"{family} abs log ratio, lower is better",
+            f"Per-dataset generator comparison: {family} metrics",
+            output_dir
+            / "grouped_bars"
+            / "families"
+            / f"per_dataset_{safe_name(family)}_score_by_source.png",
+        )
+
+    metrics = sorted({row["metric"] for row in metric_rows})
+    for metric in metrics:
+        rows = [
+            {
+                "sourceLabel": row["sourceLabel"],
+                "dataset": row["dataset"],
+                "logRatioScore": row.get("logRatioScore"),
+            }
+            for row in metric_rows
+            if row["metric"] == metric
+        ]
+        plot_grouped_bar(
+            rows,
+            "logRatioScore",
+            f"{metric} abs log ratio, lower is better",
+            f"Per-dataset generator comparison: {metric}",
+            output_dir
+            / "grouped_bars"
+            / "metrics"
+            / f"per_dataset_{safe_name(metric)}_score_by_source.png",
+        )
 
 
 def plot_metric_family_breakdown(overview_rows: list[dict], output_dir: Path) -> None:
@@ -839,8 +897,9 @@ def main() -> int:
     if not distribution_rows:
         raise SystemExit(f"No distribution.csv files found under {input_dir}")
 
-    overview_rows, _ = build_overview_tables(distribution_rows, output_dir)
+    overview_rows, metric_rows = build_overview_tables(distribution_rows, output_dir)
     plot_overview(overview_rows, output_dir)
+    plot_grouped_bars_for_all_scores(overview_rows, metric_rows, output_dir)
     plot_metric_family_breakdown(overview_rows, output_dir)
     plot_metric_scatters(distribution_rows, output_dir)
     plot_ratio_boxplots(distribution_rows, output_dir)
