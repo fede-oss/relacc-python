@@ -7,7 +7,7 @@ from typing import Callable, Dict, Iterable, Tuple
 from scipy.stats import energy_distance, ks_2samp, wasserstein_distance
 
 from relacc.utils.math import MathUtil
-
+    
 
 DistributionMetricFn = Callable[[Iterable[float], Iterable[float]], float]
 
