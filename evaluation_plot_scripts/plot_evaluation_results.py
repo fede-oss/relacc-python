@@ -26,11 +26,14 @@ from typing import Iterable
 import matplotlib
 
 matplotlib.use("Agg")
+from matplotlib import colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 
 
 EPSILON = 1e-12
+HEATMAP_LOG_RANGE_THRESHOLD = 100.0
+HEATMAP_SCALE_ROWS: list[dict] = []
 
 CORE_METRICS = (
     "shapeError",
@@ -97,6 +100,12 @@ REPRESENTATIVE_METRICS = (
     "curvature",
     "strokeLengthStd",
     "meanStrokeDuration",
+)
+
+PAIRWISE_HEATMAP_METRICS = (
+    "shapeError",
+    "dtwDistance",
+    "velocityError",
 )
 
 
@@ -329,6 +338,41 @@ def stats_fields(prefix: str, stats: AggregateStats) -> dict[str, float | int | 
     }
 
 
+def quantile_summary(values: Iterable[float]) -> dict[str, float | int | None]:
+    finite = [float(value) for value in values if math.isfinite(float(value))]
+    if not finite:
+        return {
+            "n": 0,
+            "min": None,
+            "q1": None,
+            "median": None,
+            "q3": None,
+            "max": None,
+            "iqr": None,
+        }
+    array = np.asarray(finite, dtype=float)
+    q1, median, q3 = np.quantile(array, [0.25, 0.5, 0.75])
+    return {
+        "n": len(finite),
+        "min": float(np.min(array)),
+        "q1": float(q1),
+        "median": float(median),
+        "q3": float(q3),
+        "max": float(np.max(array)),
+        "iqr": float(q3 - q1),
+    }
+
+
+def iqr_label(summary: dict[str, float | int | None]) -> str:
+    if summary["median"] is None or summary["q1"] is None or summary["q3"] is None:
+        return "median n/a"
+    return "%s [%s-%s]" % (
+        compact_number(float(summary["median"])),
+        compact_number(float(summary["q1"])),
+        compact_number(float(summary["q3"])),
+    )
+
+
 def build_overview_tables(distribution_rows: list[dict], output_dir: Path) -> tuple[list[dict], list[dict]]:
     grouped: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
     for row in distribution_rows:
@@ -498,6 +542,82 @@ def matrix_from_rows(
     return row_labels, col_labels, data, stats_by_key
 
 
+def finite_matrix_values(data: np.ndarray) -> np.ndarray:
+    return data[np.isfinite(data)]
+
+
+def heatmap_color_scale(data: np.ndarray) -> tuple[mcolors.Normalize | None, str, str]:
+    values = finite_matrix_values(data)
+    if values.size == 0:
+        return None, "linear", "linear color scale"
+
+    max_value = float(np.max(values))
+    positive_values = values[values > EPSILON]
+    if positive_values.size == 0 or max_value <= 0:
+        return None, "linear", "linear color scale"
+
+    min_value = float(np.min(values))
+    min_positive = float(np.min(positive_values))
+    dynamic_range = max_value / min_positive
+    if dynamic_range < HEATMAP_LOG_RANGE_THRESHOLD:
+        return None, "linear", "linear color scale"
+
+    if min_value > 0:
+        return (
+            mcolors.LogNorm(vmin=min_positive, vmax=max_value),
+            "log",
+            "log10 color scale",
+        )
+
+    return (
+        mcolors.SymLogNorm(
+            linthresh=min_positive,
+            linscale=1.0,
+            vmin=min_value,
+            vmax=max_value,
+            base=10,
+        ),
+        "symlog",
+        "symmetric log10 color scale; linear near zero",
+    )
+
+
+def record_heatmap_scale(
+    path: Path,
+    value_field: str,
+    scale_key: str,
+    scale_label: str,
+    data: np.ndarray,
+) -> None:
+    values = finite_matrix_values(data)
+    if values.size == 0:
+        return
+    positive_values = values[values > EPSILON]
+    min_positive = (
+        float(np.min(positive_values))
+        if positive_values.size > 0
+        else ""
+    )
+    dynamic_range = (
+        float(np.max(values) / min_positive)
+        if isinstance(min_positive, float) and min_positive > 0
+        else ""
+    )
+    HEATMAP_SCALE_ROWS.append(
+        {
+            "plot": str(path),
+            "valueField": value_field,
+            "colorScale": scale_key,
+            "colorScaleDescription": scale_label,
+            "finiteCellCount": int(values.size),
+            "min": float(np.min(values)),
+            "minPositive": min_positive,
+            "max": float(np.max(values)),
+            "dynamicRange": dynamic_range,
+        }
+    )
+
+
 def plot_heatmap(
     rows: list[dict],
     row_field: str,
@@ -518,14 +638,15 @@ def plot_heatmap(
     fig_h = max(4.5, 0.48 * len(row_labels) + 2)
     fig, ax = plt.subplots(figsize=(fig_w, fig_h))
     masked = np.ma.masked_invalid(data)
-    im = ax.imshow(masked, aspect="auto", cmap=cmap)
+    norm, scale_key, scale_label = heatmap_color_scale(data)
+    im = ax.imshow(masked, aspect="auto", cmap=cmap, norm=norm)
     ax.set_xticks(range(len(col_labels)))
     ax.set_xticklabels(col_labels, rotation=45, ha="right")
     ax.set_yticks(range(len(row_labels)))
     ax.set_yticklabels(row_labels)
-    ax.set_title(title)
+    ax.set_title(f"{title}\nColor scale: {scale_label}", fontsize=10)
     cbar = fig.colorbar(im, ax=ax)
-    cbar.set_label(value_label)
+    cbar.set_label(f"{value_label} ({scale_label})")
     for i in range(data.shape[0]):
         for j in range(data.shape[1]):
             if math.isfinite(data[i, j]) and data.shape[0] * data.shape[1] <= 140:
@@ -545,6 +666,296 @@ def plot_heatmap(
     fig.tight_layout()
     fig.savefig(path, dpi=180)
     plt.close(fig)
+    record_heatmap_scale(path, value_field, scale_key, scale_label, data)
+
+
+def pair_keys_from_combined_key(pair_key: object) -> tuple[str, str] | None:
+    if pair_key in (None, ""):
+        return None
+    text = str(pair_key)
+    if "::" not in text:
+        return None
+    left, right = text.split("::", 1)
+    if not left or not right:
+        return None
+    return left, right
+
+
+def pairwise_matrix_from_rows(
+    rows: list[dict],
+    metric: str,
+    left_field: str,
+    right_field: str,
+    symmetric: bool,
+    neutral_diagonal: bool = True,
+) -> tuple[list[str], list[str], np.ndarray]:
+    metric_rows = [row for row in rows if row.get("metric") in (None, "", metric)]
+    row_labels = sorted(
+        {
+            str(row[left_field])
+            for row in metric_rows
+            if row.get(left_field) not in (None, "")
+        }
+    )
+    col_labels = sorted(
+        {
+            str(row[right_field])
+            for row in metric_rows
+            if row.get(right_field) not in (None, "")
+        }
+    )
+    if symmetric:
+        labels = sorted(set(row_labels) | set(col_labels))
+        row_labels = labels
+        col_labels = labels
+
+    data = np.full((len(row_labels), len(col_labels)), np.nan)
+    buckets: dict[tuple[str, str], list[float]] = defaultdict(list)
+    for row in metric_rows:
+        left = row.get(left_field)
+        right = row.get(right_field)
+        value = row.get("value") if row.get("metric") == metric else row.get(metric)
+        value_float = to_float(value)
+        if left in (None, "") or right in (None, "") or value_float is None:
+            continue
+        if value_float < -EPSILON:
+            continue
+        left_key = str(left)
+        right_key = str(right)
+        buckets[(left_key, right_key)].append(max(0.0, value_float))
+        if symmetric:
+            buckets[(right_key, left_key)].append(max(0.0, value_float))
+
+    row_index = {label: idx for idx, label in enumerate(row_labels)}
+    col_index = {label: idx for idx, label in enumerate(col_labels)}
+    for (left_key, right_key), values in buckets.items():
+        if left_key in row_index and right_key in col_index:
+            data[row_index[left_key], col_index[right_key]] = statistics.fmean(values)
+
+    if neutral_diagonal and len(row_labels) == len(col_labels) and row_labels == col_labels:
+        np.fill_diagonal(data, np.nan)
+    return row_labels, col_labels, data
+
+
+def pairwise_matrix_from_combined_pair_keys(
+    rows: list[dict],
+    metric: str,
+) -> tuple[list[str], list[str], np.ndarray]:
+    expanded_rows = []
+    for row in rows:
+        keys = pair_keys_from_combined_key(row.get("pairKey"))
+        if keys is None:
+            continue
+        left, right = keys
+        expanded_rows.append({**row, "_leftKey": left, "_rightKey": right})
+    return pairwise_matrix_from_rows(
+        expanded_rows,
+        metric,
+        "_leftKey",
+        "_rightKey",
+        symmetric=True,
+    )
+
+
+def plot_pairwise_matrix_heatmap(
+    row_labels: list[str],
+    col_labels: list[str],
+    data: np.ndarray,
+    title: str,
+    path: Path,
+    value_label: str,
+    scale_value_field: str,
+) -> bool:
+    if data.size == 0 or not np.isfinite(data).any():
+        return False
+
+    ensure_dir(path.parent)
+    fig_w = max(7.5, 0.5 * len(col_labels) + 2.4)
+    fig_h = max(5.2, 0.45 * len(row_labels) + 2.4)
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    cmap = plt.colormaps["viridis_r"].copy()
+    cmap.set_bad(color="#f2f2f2")
+    norm, scale_key, scale_label = heatmap_color_scale(data)
+    im = ax.imshow(np.ma.masked_invalid(data), aspect="auto", cmap=cmap, norm=norm)
+    ax.set_xticks(range(len(col_labels)))
+    ax.set_xticklabels(col_labels, rotation=45, ha="right")
+    ax.set_yticks(range(len(row_labels)))
+    ax.set_yticklabels(row_labels)
+    ax.set_xlabel("comparison gesture")
+    ax.set_ylabel("reference gesture")
+    ax.set_title(f"{title}\nColor scale: {scale_label}", fontsize=10)
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.set_label(f"{value_label} ({scale_label})")
+
+    if data.shape[0] * data.shape[1] <= 160:
+        for i in range(data.shape[0]):
+            for j in range(data.shape[1]):
+                if math.isfinite(data[i, j]):
+                    ax.text(j, i, f"{data[i, j]:.2f}", ha="center", va="center", fontsize=6.5)
+
+    fig.tight_layout()
+    fig.savefig(path, dpi=180)
+    plt.close(fig)
+    record_heatmap_scale(path, scale_value_field, scale_key, scale_label, data)
+    return True
+
+
+def raw_pairwise_files(input_dir: Path, filename: str) -> list[Path]:
+    return sorted(input_dir.rglob(filename))
+
+
+def case_key_from_row_and_path(input_dir: Path, path: Path, row: dict) -> tuple[str, str, str, str]:
+    try:
+        parts = path.parent.relative_to(input_dir).parts
+    except ValueError:
+        parts = ()
+    source = str(row.get("source") or row.get("candidateSource") or (parts[0] if len(parts) > 0 else "report"))
+    dataset = str(row.get("dataset") or row.get("datasetKey") or (parts[1] if len(parts) > 1 else "dataset"))
+    variant = str(row.get("variant") or "")
+    class_key = str(row.get("classKey") or (parts[-1] if len(parts) >= 4 and parts[-2] == "classes" else "."))
+    return source, dataset, variant, class_key
+
+
+def group_rows_by_case(input_dir: Path, filename: str) -> dict[tuple[str, str, str, str], list[dict]]:
+    grouped: dict[tuple[str, str, str, str], list[dict]] = defaultdict(list)
+    for path in raw_pairwise_files(input_dir, filename):
+        for row in read_csv_rows(path):
+            grouped[case_key_from_row_and_path(input_dir, path, row)].append(row)
+    return grouped
+
+
+def plot_pairwise_distance_heatmaps(
+    input_dir: Path,
+    output_dir: Path,
+    metrics: Iterable[str] = PAIRWISE_HEATMAP_METRICS,
+) -> list[dict]:
+    generated_rows = []
+    within_by_case = group_rows_by_case(input_dir, "within_comparison.csv")
+    raw_baseline_by_case = group_rows_by_case(input_dir, "raw_baseline_pairs.csv")
+    raw_candidate_by_case = group_rows_by_case(input_dir, "raw_candidate_pairs.csv")
+
+    for case_key, rows in sorted(within_by_case.items()):
+        source, dataset, variant, class_key = case_key
+        for metric in metrics:
+            labels, _, data = pairwise_matrix_from_combined_pair_keys(rows, metric)
+            path = (
+                output_dir
+                / "pairwise_heatmaps"
+                / safe_name(source)
+                / safe_name(dataset)
+                / safe_name(variant or "default")
+                / safe_name(class_key)
+                / f"within_comparison_{safe_name(metric)}.png"
+            )
+            if plot_pairwise_matrix_heatmap(
+                labels,
+                labels,
+                data,
+                f"Within-comparison gesture distances: {source} / {dataset} / {class_key} / {metric}",
+                path,
+                f"{metric}; lower is closer",
+                f"withinComparison:{metric}",
+            ):
+                generated_rows.append(
+                    {
+                        "source": source,
+                        "dataset": dataset,
+                        "variant": variant,
+                        "classKey": class_key,
+                        "metric": metric,
+                        "pairType": "within-comparison",
+                        "path": str(path),
+                    }
+                )
+
+    for case_key, rows in sorted(raw_baseline_by_case.items()):
+        source, dataset, variant, class_key = case_key
+        for metric in metrics:
+            labels, _, data = pairwise_matrix_from_rows(
+                rows,
+                metric,
+                "referenceKey",
+                "candidateKey",
+                symmetric=False,
+            )
+            path = (
+                output_dir
+                / "pairwise_heatmaps"
+                / safe_name(source)
+                / safe_name(dataset)
+                / safe_name(variant or "default")
+                / safe_name(class_key)
+                / f"within_reference_{safe_name(metric)}.png"
+            )
+            if plot_pairwise_matrix_heatmap(
+                labels,
+                labels,
+                data,
+                f"Within-reference gesture distances: {source} / {dataset} / {class_key} / {metric}",
+                path,
+                f"{metric}; lower is closer",
+                f"withinReferenceRaw:{metric}",
+            ):
+                generated_rows.append(
+                    {
+                        "source": source,
+                        "dataset": dataset,
+                        "variant": variant,
+                        "classKey": class_key,
+                        "metric": metric,
+                        "pairType": "within-reference-raw",
+                        "path": str(path),
+                    }
+                )
+
+    for case_key, rows in sorted(raw_candidate_by_case.items()):
+        source, dataset, variant, class_key = case_key
+        for metric in metrics:
+            row_labels, col_labels, data = pairwise_matrix_from_rows(
+                rows,
+                metric,
+                "referenceKey",
+                "candidateKey",
+                symmetric=False,
+                neutral_diagonal=False,
+            )
+            path = (
+                output_dir
+                / "pairwise_heatmaps"
+                / safe_name(source)
+                / safe_name(dataset)
+                / safe_name(variant or "default")
+                / safe_name(class_key)
+                / f"between_groups_{safe_name(metric)}.png"
+            )
+            if plot_pairwise_matrix_heatmap(
+                row_labels,
+                col_labels,
+                data,
+                f"Between-group gesture distances: {source} / {dataset} / {class_key} / {metric}",
+                path,
+                f"{metric}; lower is closer",
+                f"betweenGroupsRaw:{metric}",
+            ):
+                generated_rows.append(
+                    {
+                        "source": source,
+                        "dataset": dataset,
+                        "variant": variant,
+                        "classKey": class_key,
+                        "metric": metric,
+                        "pairType": "between-groups-raw",
+                        "path": str(path),
+                    }
+                )
+
+    if generated_rows:
+        write_csv(
+            output_dir / "tables" / "pairwise_heatmaps.csv",
+            generated_rows,
+            ["source", "dataset", "variant", "classKey", "metric", "pairType", "path"],
+        )
+    return generated_rows
 
 
 def plot_overview(overview_rows: list[dict], output_dir: Path) -> None:
@@ -843,13 +1254,28 @@ def plot_ratio_boxplots(distribution_rows: list[dict], output_dir: Path) -> None
     if not data:
         return
     fig, ax = plt.subplots(figsize=(max(8, len(labels) * 0.8), 5.5))
-    ax.boxplot(data, tick_labels=labels, showfliers=False)
+    ax.boxplot(data, tick_labels=labels, showfliers=True, whis=1.5)
     ax.axhline(1.0, color="black", linestyle="--", linewidth=1)
     ax.set_ylabel("withinComparisonMean / withinReferenceMean")
-    ax.set_title("Core metric within-variability ratios by source")
+    ax.set_title("Core metric within-variability ratios by source\nBox = IQR; whiskers = 1.5x IQR")
     ax.tick_params(axis="x", rotation=35)
+    iqr_rows = []
+    for label in labels:
+        summary = quantile_summary(rows_by_label[label])
+        iqr_rows.append(
+            {
+                "sourceLabel": label,
+                "n": summary["n"],
+                "min": summary["min"],
+                "q1": summary["q1"],
+                "median": summary["median"],
+                "q3": summary["q3"],
+                "max": summary["max"],
+                "iqr": summary["iqr"],
+            }
+        )
     summary_lines = [
-        f"{label}: {mean_std_label(aggregate_stats(rows_by_label[label]))}"
+        f"{label}: {iqr_label(quantile_summary(rows_by_label[label]))}"
         for label in labels[:6]
     ]
     if len(labels) > 6:
@@ -870,6 +1296,11 @@ def plot_ratio_boxplots(distribution_rows: list[dict], output_dir: Path) -> None
     fig.savefig(
         output_dir / "boxplots" / "core_within_variability_ratio_by_source.png",
         dpi=180,
+    )
+    write_csv(
+        output_dir / "tables" / "core_within_variability_ratio_iqr.csv",
+        iqr_rows,
+        ["sourceLabel", "n", "min", "q1", "median", "q3", "max", "iqr"],
     )
     plt.close(fig)
 
@@ -1196,6 +1627,7 @@ def main() -> int:
     input_dir = Path(args.input_dir)
     output_dir = Path(args.output_dir)
     ensure_dir(output_dir)
+    HEATMAP_SCALE_ROWS.clear()
 
     distribution_rows = load_distribution_rows(input_dir)
     if not distribution_rows:
@@ -1215,11 +1647,29 @@ def main() -> int:
         args.representative_count,
     )
     compute_envelope_pass_rates(input_dir, output_dir)
+    pairwise_heatmaps = plot_pairwise_distance_heatmaps(input_dir, output_dir)
+    write_csv(
+        output_dir / "tables" / "heatmap_color_scales.csv",
+        HEATMAP_SCALE_ROWS,
+        [
+            "plot",
+            "valueField",
+            "colorScale",
+            "colorScaleDescription",
+            "finiteCellCount",
+            "min",
+            "minPositive",
+            "max",
+            "dynamicRange",
+        ],
+    )
 
     summary = [
         {"item": "distribution_rows", "value": len(distribution_rows)},
         {"item": "source_dataset_rows", "value": len(overview_rows)},
         {"item": "representative_cases", "value": len(representative_cases)},
+        {"item": "pairwise_heatmaps", "value": len(pairwise_heatmaps)},
+        {"item": "heatmap_color_scale_rows", "value": len(HEATMAP_SCALE_ROWS)},
     ]
     write_csv(output_dir / "tables" / "generation_summary.csv", summary, ["item", "value"])
     print(f"Wrote evaluation plots and tables to {output_dir}")
