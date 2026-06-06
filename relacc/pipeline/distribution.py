@@ -37,6 +37,8 @@ SUMMARY_STAT_NAMES: Tuple[str, ...] = (
     "mdn",
     "sd",
     "variance",
+    "meanCi95Low",
+    "meanCi95High",
     "min",
     "max",
     "q05",
@@ -264,6 +266,26 @@ def _normality_p_value(
     return _rounded_stat(float(p_value), round_precision)
 
 
+def _mean_ci_95(
+    mean: float,
+    sd: float,
+    n: int,
+    round_precision: int | None,
+) -> tuple[float, float]:
+    if n == 0:
+        empty = _rounded_stat(float("nan"), round_precision)
+        return empty, empty
+    if n == 1 or sd == 0:
+        rounded_mean = _rounded_stat(mean, round_precision)
+        return rounded_mean, rounded_mean
+
+    margin = float(stats.t.ppf(0.975, n - 1)) * (sd / math.sqrt(n))
+    return (
+        _rounded_stat(mean - margin, round_precision),
+        _rounded_stat(mean + margin, round_precision),
+    )
+
+
 def _summary_stats(values: Sequence[float], round_precision: int | None):
     finite_values = [value for value in values if math.isfinite(value)]
     n = len(finite_values)
@@ -277,12 +299,15 @@ def _summary_stats(values: Sequence[float], round_precision: int | None):
     variance = statistics.variance(finite_values) if n > 1 else 0.0
     minimum = min(finite_values)
     maximum = max(finite_values)
+    mean_ci_95_low, mean_ci_95_high = _mean_ci_95(mean, sd, n, round_precision)
 
     return _validate_summary_stats({
         "mean": _rounded_stat(mean, round_precision),
         "mdn": _rounded_stat(mdn, round_precision),
         "sd": _rounded_stat(sd, round_precision),
         "variance": _rounded_stat(variance, round_precision),
+        "meanCi95Low": mean_ci_95_low,
+        "meanCi95High": mean_ci_95_high,
         "min": _rounded_stat(minimum, round_precision),
         "max": _rounded_stat(maximum, round_precision),
         "q05": _rounded_stat(_quantile(sorted_values, 0.05), round_precision),

@@ -19,6 +19,7 @@ import csv
 import math
 import statistics
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
@@ -97,6 +98,15 @@ REPRESENTATIVE_METRICS = (
     "strokeLengthStd",
     "meanStrokeDuration",
 )
+
+
+@dataclass(frozen=True)
+class AggregateStats:
+    n: int
+    mean: float | None
+    sd: float | None
+    ci_low: float | None
+    ci_high: float | None
 
 
 def parse_args() -> argparse.Namespace:
@@ -267,6 +277,58 @@ def mean_or_none(values: Iterable[float | None]) -> float | None:
     return statistics.fmean(finite)
 
 
+def aggregate_stats(values: Iterable[float | None]) -> AggregateStats:
+    finite = [float(value) for value in values if value is not None and math.isfinite(value)]
+    n = len(finite)
+    if n == 0:
+        return AggregateStats(n=0, mean=None, sd=None, ci_low=None, ci_high=None)
+    mean = statistics.fmean(finite)
+    sd = statistics.stdev(finite) if n > 1 else 0.0
+    if n <= 1 or sd == 0:
+        return AggregateStats(n=n, mean=mean, sd=sd, ci_low=mean, ci_high=mean)
+    margin = 1.96 * sd / math.sqrt(n)
+    return AggregateStats(n=n, mean=mean, sd=sd, ci_low=mean - margin, ci_high=mean + margin)
+
+
+def ci_half_width(stats: AggregateStats) -> float | None:
+    if stats.mean is None or stats.ci_low is None or stats.ci_high is None:
+        return None
+    return max(stats.mean - stats.ci_low, stats.ci_high - stats.mean, 0.0)
+
+
+def compact_number(value: float | None) -> str:
+    if value is None or not math.isfinite(value):
+        return "n/a"
+    magnitude = abs(value)
+    if magnitude >= 100:
+        return f"{value:.0f}"
+    if magnitude >= 10:
+        return f"{value:.1f}"
+    return f"{value:.2f}"
+
+
+def mean_std_label(stats: AggregateStats) -> str:
+    if stats.mean is None:
+        return "n/a"
+    return f"{compact_number(stats.mean)} +/- {compact_number(stats.sd or 0.0)}"
+
+
+def ci_label(stats: AggregateStats) -> str:
+    if stats.ci_low is None or stats.ci_high is None:
+        return "95% CI n/a"
+    return f"95% CI {compact_number(stats.ci_low)}-{compact_number(stats.ci_high)}"
+
+
+def stats_fields(prefix: str, stats: AggregateStats) -> dict[str, float | int | None]:
+    return {
+        prefix: stats.mean,
+        f"{prefix}N": stats.n,
+        f"{prefix}Sd": stats.sd,
+        f"{prefix}Ci95Low": stats.ci_low,
+        f"{prefix}Ci95High": stats.ci_high,
+    }
+
+
 def build_overview_tables(distribution_rows: list[dict], output_dir: Path) -> tuple[list[dict], list[dict]]:
     grouped: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
     for row in distribution_rows:
@@ -277,14 +339,24 @@ def build_overview_tables(distribution_rows: list[dict], output_dir: Path) -> tu
         by_family = {}
         for family, metrics in METRIC_FAMILIES.items():
             metric_set = set(metrics)
-            by_family[f"{family}LogRatioScore"] = mean_or_none(
-                valid_log_ratio(row) for row in rows if row["metric"] in metric_set
+            family_rows = [row for row in rows if row["metric"] in metric_set]
+            by_family.update(
+                stats_fields(
+                    f"{family}LogRatioScore",
+                    aggregate_stats(valid_log_ratio(row) for row in family_rows),
+                )
             )
-            by_family[f"{family}NormalizedWasserstein"] = mean_or_none(
-                valid_normalized_w(row) for row in rows if row["metric"] in metric_set
+            by_family.update(
+                stats_fields(
+                    f"{family}NormalizedWasserstein",
+                    aggregate_stats(valid_normalized_w(row) for row in family_rows),
+                )
             )
-            by_family[f"{family}KsStatistic"] = mean_or_none(
-                valid_ks(row) for row in rows if row["metric"] in metric_set
+            by_family.update(
+                stats_fields(
+                    f"{family}KsStatistic",
+                    aggregate_stats(valid_ks(row) for row in family_rows),
+                )
             )
         overview_rows.append(
             {
@@ -306,9 +378,15 @@ def build_overview_tables(distribution_rows: list[dict], output_dir: Path) -> tu
                 "dataset": dataset,
                 "variant": variant,
                 "metric": metric,
-                "logRatioScore": mean_or_none(valid_log_ratio(row) for row in rows),
-                "normalizedWasserstein": mean_or_none(valid_normalized_w(row) for row in rows),
-                "ksStatistic": mean_or_none(valid_ks(row) for row in rows),
+                **stats_fields(
+                    "logRatioScore",
+                    aggregate_stats(valid_log_ratio(row) for row in rows),
+                ),
+                **stats_fields(
+                    "normalizedWasserstein",
+                    aggregate_stats(valid_normalized_w(row) for row in rows),
+                ),
+                **stats_fields("ksStatistic", aggregate_stats(valid_ks(row) for row in rows)),
                 "withinComparisonToReferenceMeanRatio": mean_or_none(
                     distribution_ratio(row) for row in rows
                 ),
@@ -324,22 +402,24 @@ def build_overview_tables(distribution_rows: list[dict], output_dir: Path) -> tu
             }
         )
 
+    overview_columns = ["sourceLabel", "dataset", "variant"]
+    for family in METRIC_FAMILIES:
+        for score_name in ("LogRatioScore", "NormalizedWasserstein", "KsStatistic"):
+            prefix = f"{family}{score_name}"
+            overview_columns.extend(
+                [
+                    prefix,
+                    f"{prefix}N",
+                    f"{prefix}Sd",
+                    f"{prefix}Ci95Low",
+                    f"{prefix}Ci95High",
+                ]
+            )
+
     write_csv(
         output_dir / "tables" / "source_dataset_scores.csv",
         overview_rows,
-        [
-            "sourceLabel",
-            "dataset",
-            "variant",
-            "coreLogRatioScore",
-            "coreNormalizedWasserstein",
-            "coreKsStatistic",
-            "shapeLogRatioScore",
-            "timingLogRatioScore",
-            "movementLogRatioScore",
-            "strokeLogRatioScore",
-            "dtwLogRatioScore",
-        ],
+        overview_columns,
     )
     write_csv(
         output_dir / "tables" / "source_dataset_metric_scores.csv",
@@ -350,8 +430,20 @@ def build_overview_tables(distribution_rows: list[dict], output_dir: Path) -> tu
             "variant",
             "metric",
             "logRatioScore",
+            "logRatioScoreN",
+            "logRatioScoreSd",
+            "logRatioScoreCi95Low",
+            "logRatioScoreCi95High",
             "normalizedWasserstein",
+            "normalizedWassersteinN",
+            "normalizedWassersteinSd",
+            "normalizedWassersteinCi95Low",
+            "normalizedWassersteinCi95High",
             "ksStatistic",
+            "ksStatisticN",
+            "ksStatisticSd",
+            "ksStatisticCi95Low",
+            "ksStatisticCi95High",
             "withinComparisonToReferenceMeanRatio",
             "withinComparisonToReferenceSdRatio",
         ],
@@ -364,11 +456,12 @@ def matrix_from_rows(
     row_field: str,
     col_field: str,
     value_field: str,
-) -> tuple[list[str], list[str], np.ndarray]:
+) -> tuple[list[str], list[str], np.ndarray, dict[tuple[str, str], AggregateStats]]:
     row_labels = sorted({str(row[row_field]) for row in rows if row.get(value_field) not in (None, "")})
     col_labels = sorted({str(row[col_field]) for row in rows if row.get(value_field) not in (None, "")})
     data = np.full((len(row_labels), len(col_labels)), np.nan)
     buckets: dict[tuple[str, str], list[float]] = defaultdict(list)
+    explicit_stats: dict[tuple[str, str], AggregateStats] = {}
     for row in rows:
         value = row.get(value_field)
         if value is None:
@@ -378,12 +471,31 @@ def matrix_from_rows(
         except (TypeError, ValueError):
             continue
         if math.isfinite(value_float):
-            buckets[(str(row[row_field]), str(row[col_field]))].append(value_float)
+            key = (str(row[row_field]), str(row[col_field]))
+            buckets[key].append(value_float)
+            sd = to_float(row.get(f"{value_field}Sd"))
+            ci_low = to_float(row.get(f"{value_field}Ci95Low"))
+            ci_high = to_float(row.get(f"{value_field}Ci95High"))
+            n = to_float(row.get(f"{value_field}N"))
+            if sd is not None or ci_low is not None or ci_high is not None:
+                explicit_stats[key] = AggregateStats(
+                    n=int(n) if n is not None else 1,
+                    mean=value_float,
+                    sd=sd,
+                    ci_low=ci_low,
+                    ci_high=ci_high,
+                )
     row_index = {label: idx for idx, label in enumerate(row_labels)}
     col_index = {label: idx for idx, label in enumerate(col_labels)}
+    stats_by_key = {}
+    for key, values in buckets.items():
+        if len(values) == 1 and key in explicit_stats:
+            stats_by_key[key] = explicit_stats[key]
+        else:
+            stats_by_key[key] = aggregate_stats(values)
     for key, values in buckets.items():
         data[row_index[key[0]], col_index[key[1]]] = statistics.fmean(values)
-    return row_labels, col_labels, data
+    return row_labels, col_labels, data, stats_by_key
 
 
 def plot_heatmap(
@@ -396,7 +508,9 @@ def plot_heatmap(
     cmap: str = "viridis_r",
     value_label: str = "lower is better",
 ) -> None:
-    row_labels, col_labels, data = matrix_from_rows(rows, row_field, col_field, value_field)
+    row_labels, col_labels, data, stats_by_key = matrix_from_rows(
+        rows, row_field, col_field, value_field
+    )
     if data.size == 0:
         return
     ensure_dir(path.parent)
@@ -415,7 +529,19 @@ def plot_heatmap(
     for i in range(data.shape[0]):
         for j in range(data.shape[1]):
             if math.isfinite(data[i, j]) and data.shape[0] * data.shape[1] <= 140:
-                ax.text(j, i, f"{data[i, j]:.2f}", ha="center", va="center", fontsize=7)
+                stats = stats_by_key.get((row_labels[i], col_labels[j]))
+                if stats is not None and stats.n > 1 and stats.sd is not None:
+                    ax.text(j, i - 0.09, f"{data[i, j]:.2f}", ha="center", va="center", fontsize=6.5)
+                    ax.text(
+                        j,
+                        i + 0.12,
+                        f"+/-{compact_number(stats.sd or 0.0)}",
+                        ha="center",
+                        va="center",
+                        fontsize=5.2,
+                    )
+                else:
+                    ax.text(j, i, f"{data[i, j]:.2f}", ha="center", va="center", fontsize=6.5)
     fig.tight_layout()
     fig.savefig(path, dpi=180)
     plt.close(fig)
@@ -453,18 +579,40 @@ def plot_overview(overview_rows: list[dict], output_dir: Path) -> None:
     labels = sorted({row["sourceLabel"] for row in overview_rows})
     source_scores = []
     for label in labels:
-        score = mean_or_none(
+        stats = aggregate_stats(
             row.get("coreLogRatioScore") for row in overview_rows if row["sourceLabel"] == label
         )
-        if score is not None:
-            source_scores.append((label, score))
-    source_scores.sort(key=lambda item: item[1])
+        if stats.mean is not None:
+            source_scores.append((label, stats))
+    source_scores.sort(key=lambda item: item[1].mean or math.inf)
 
     fig, ax = plt.subplots(figsize=(9, max(4, 0.45 * len(source_scores) + 1)))
-    ax.barh([item[0] for item in source_scores], [item[1] for item in source_scores], color="#4477aa")
+    bar_values = [item[1].mean for item in source_scores]
+    bar_errors = [ci_half_width(item[1]) or 0.0 for item in source_scores]
+    bars = ax.barh(
+        [item[0] for item in source_scores],
+        bar_values,
+        xerr=bar_errors,
+        color="#4477aa",
+        error_kw={"elinewidth": 0.9, "capsize": 2.5, "alpha": 0.75},
+    )
     ax.invert_yaxis()
     ax.set_xlabel("Mean core abs log variability ratio, lower is better")
     ax.set_title("Overall source ranking across datasets")
+    label_x_values = []
+    for bar, (_, stats) in zip(bars, source_scores):
+        error_width = ci_half_width(stats) or 0.0
+        label_x = (stats.mean or 0.0) + error_width
+        label_x_values.append(label_x)
+        ax.text(
+            label_x,
+            bar.get_y() + bar.get_height() / 2,
+            f"  {mean_std_label(stats)}",
+            va="center",
+            fontsize=7,
+        )
+    max_label_x = max(label_x_values or [0.0])
+    ax.set_xlim(right=max(ax.get_xlim()[1], max_label_x * 1.18 if max_label_x else 1.0))
     fig.tight_layout()
     ensure_dir(output_dir / "overview")
     fig.savefig(output_dir / "overview" / "overall_source_ranking_core.png", dpi=180)
@@ -493,23 +641,46 @@ def plot_grouped_bar(
     width = 0.8 / max(1, len(labels))
     fig, ax = plt.subplots(figsize=(max(11, len(datasets) * 0.9), 6))
     x = np.arange(len(datasets))
+    total_bars = len(datasets) * len(labels)
     for idx, label in enumerate(labels):
-        values = []
+        stats_values = []
         for dataset in datasets:
-            values.append(
-                mean_or_none(
+            stats_values.append(
+                aggregate_stats(
                     row.get(value_field)
                     for row in rows
                     if row["dataset"] == dataset and row["sourceLabel"] == label
                 )
             )
-        y = [np.nan if value is None else value for value in values]
-        ax.bar(x + (idx - (len(labels) - 1) / 2) * width, y, width, label=label)
+        y = [np.nan if stats.mean is None else stats.mean for stats in stats_values]
+        yerr = [0.0 if ci_half_width(stats) is None else ci_half_width(stats) for stats in stats_values]
+        bars = ax.bar(
+            x + (idx - (len(labels) - 1) / 2) * width,
+            y,
+            width,
+            yerr=yerr,
+            label=label,
+            error_kw={"elinewidth": 0.8, "capsize": 2, "alpha": 0.75},
+        )
+        if total_bars <= 36:
+            for bar, stats in zip(bars, stats_values):
+                if stats.mean is None:
+                    continue
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    bar.get_height(),
+                    mean_std_label(stats),
+                    ha="center",
+                    va="bottom",
+                    fontsize=6.5,
+                    rotation=0 if total_bars <= 12 else 90,
+                )
     ax.set_xticks(x)
     ax.set_xticklabels(datasets, rotation=45, ha="right")
     ax.set_ylabel(ylabel)
     ax.set_title(title)
     ax.legend(fontsize=8, ncols=2)
+    ax.margins(y=0.18)
     fig.tight_layout()
     ensure_dir(path.parent)
     fig.savefig(path, dpi=180)
@@ -587,6 +758,8 @@ def plot_metric_scatters(distribution_rows: list[dict], output_dir: Path) -> Non
     for metric in CORE_METRICS + MOVEMENT_METRICS:
         xs = []
         ys = []
+        xerrs = []
+        yerrs = []
         colors = []
         labels = sorted({row["_runLabel"] for row in distribution_rows})
         label_index = {label: idx for idx, label in enumerate(labels)}
@@ -599,16 +772,47 @@ def plot_metric_scatters(distribution_rows: list[dict], output_dir: Path) -> Non
                 continue
             xs.append(x)
             ys.append(y)
+            xerrs.append(
+                max(
+                    0.0,
+                    distribution_value(row, "withinReferenceSd", "baselineSd") or 0.0,
+                )
+            )
+            yerrs.append(
+                max(
+                    0.0,
+                    distribution_value(row, "betweenGroupsSd", "candidateSd") or 0.0,
+                )
+            )
             colors.append(label_index[row["_runLabel"]])
         if not xs:
             continue
         max_value = max(max(xs), max(ys))
         fig, ax = plt.subplots(figsize=(6.5, 6))
         scatter = ax.scatter(xs, ys, c=colors, cmap="tab10", alpha=0.42, s=12)
+        if len(xs) <= 250 and (any(xerrs) or any(yerrs)):
+            ax.errorbar(
+                xs,
+                ys,
+                xerr=xerrs,
+                yerr=yerrs,
+                fmt="none",
+                ecolor="#555555",
+                elinewidth=0.45,
+                alpha=0.18,
+                capsize=0,
+                zorder=0,
+            )
         ax.plot([0, max_value], [0, max_value], color="black", linewidth=1, linestyle="--")
         ax.set_xlabel("Within-reference mean")
         ax.set_ylabel("Between-group mean")
-        ax.set_title(f"Within-reference vs between-group mean: {metric}")
+        ratio_stats = aggregate_stats(
+            distribution_ratio(row)
+            for row in distribution_rows
+            if row["metric"] == metric and distribution_ratio(row) is not None
+        )
+        subtitle = f"variability ratio {mean_std_label(ratio_stats)}; {ci_label(ratio_stats)}"
+        ax.set_title(f"Within-reference vs between-group mean: {metric}\n{subtitle}", fontsize=10)
         handles, _ = scatter.legend_elements(num=len(labels))
         if len(handles) == len(labels):
             ax.legend(handles, labels, title="source", fontsize=7, loc="best")
@@ -644,6 +848,23 @@ def plot_ratio_boxplots(distribution_rows: list[dict], output_dir: Path) -> None
     ax.set_ylabel("withinComparisonMean / withinReferenceMean")
     ax.set_title("Core metric within-variability ratios by source")
     ax.tick_params(axis="x", rotation=35)
+    summary_lines = [
+        f"{label}: {mean_std_label(aggregate_stats(rows_by_label[label]))}"
+        for label in labels[:6]
+    ]
+    if len(labels) > 6:
+        summary_lines.append(f"+ {len(labels) - 6} more")
+    if summary_lines:
+        ax.text(
+            0.99,
+            0.98,
+            "\n".join(summary_lines),
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
+            fontsize=7,
+            bbox={"facecolor": "white", "edgecolor": "#dddddd", "alpha": 0.82, "pad": 3},
+        )
     fig.tight_layout()
     ensure_dir(output_dir / "boxplots")
     fig.savefig(
@@ -738,6 +959,16 @@ def plot_histogram_and_ecdf(
     baseline_clip = [v for v in baseline_values if lo <= v <= hi]
     candidate_clip = [v for v in candidate_values if lo <= v <= hi]
     bins = np.linspace(lo, hi, 36)
+    baseline_stats = aggregate_stats(baseline_values)
+    candidate_stats = aggregate_stats(candidate_values)
+    stat_text = "\n".join(
+        item
+        for item in [
+            f"human {mean_std_label(baseline_stats)}; {ci_label(baseline_stats)}",
+            f"generated {mean_std_label(candidate_stats)}; {ci_label(candidate_stats)}",
+        ]
+        if item
+    )
 
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
     ax.hist(
@@ -758,8 +989,18 @@ def plot_histogram_and_ecdf(
     )
     ax.axvline(statistics.median(baseline_values), color="#225588", linestyle="--", linewidth=1)
     ax.axvline(statistics.median(candidate_values), color="#aa3355", linestyle="--", linewidth=1)
-    ax.set_title(title)
+    ax.set_title(title, fontsize=10)
     ax.set_ylabel("density")
+    ax.text(
+        0.99,
+        0.98,
+        stat_text,
+        transform=ax.transAxes,
+        ha="right",
+        va="top",
+        fontsize=7.5,
+        bbox={"facecolor": "white", "edgecolor": "#dddddd", "alpha": 0.82, "pad": 3},
+    )
     ax.legend()
     fig.tight_layout()
     ensure_dir(histogram_path.parent)
@@ -775,8 +1016,18 @@ def plot_histogram_and_ecdf(
         y = np.arange(1, len(sorted_values) + 1) / len(sorted_values)
         ax.step(sorted_values, y, where="post", label=label, color=color)
     ax.set_xlim(lo, hi)
-    ax.set_title(title.replace("Histogram", "ECDF"))
+    ax.set_title(title.replace("Histogram", "ECDF"), fontsize=10)
     ax.set_ylabel("cumulative share")
+    ax.text(
+        0.99,
+        0.02,
+        stat_text,
+        transform=ax.transAxes,
+        ha="right",
+        va="bottom",
+        fontsize=7.5,
+        bbox={"facecolor": "white", "edgecolor": "#dddddd", "alpha": 0.82, "pad": 3},
+    )
     ax.legend()
     fig.tight_layout()
     ensure_dir(ecdf_path.parent)
