@@ -7,6 +7,7 @@ import math
 import statistics
 import time
 from collections import defaultdict
+from itertools import combinations
 from pathlib import Path
 from typing import Dict, Iterable, List, Sequence
 
@@ -20,6 +21,7 @@ from relacc.gestures.ptaligntype import PtAlignType
 from relacc.gestures.summarygesture import SummaryGesture
 from relacc.metrics import METRIC_NAMES, compute_metrics
 from relacc.pipeline._common import (
+    compute_pair_metrics_from_points,
     format_csv_rows,
     list_csv_files,
     normalize_summary_shape,
@@ -119,49 +121,68 @@ DISTRIBUTION_COLUMNS = (
     "variant",
     "classKey",
     "metric",
-    "baselineN",
-    "baselineFiniteN",
-    "baselineMean",
-    "baselineMdn",
-    "baselineSd",
-    "baselineVariance",
-    "baselineMin",
-    "baselineMax",
-    "baselineQ05",
-    "baselineQ25",
-    "baselineQ50",
-    "baselineQ75",
-    "baselineQ95",
-    "baselineSkewness",
-    "baselineKurtosis",
-    "baselineNormalityPValue",
-    "candidateN",
-    "candidateFiniteN",
-    "candidateMean",
-    "candidateMdn",
-    "candidateSd",
-    "candidateVariance",
-    "candidateMin",
-    "candidateMax",
-    "candidateQ05",
-    "candidateQ25",
-    "candidateQ50",
-    "candidateQ75",
-    "candidateQ95",
-    "candidateSkewness",
-    "candidateKurtosis",
-    "candidateNormalityPValue",
+    "withinReferenceN",
+    "withinReferenceFiniteN",
+    "withinReferenceMean",
+    "withinReferenceMdn",
+    "withinReferenceSd",
+    "withinReferenceVariance",
+    "withinReferenceMin",
+    "withinReferenceMax",
+    "withinReferenceQ05",
+    "withinReferenceQ25",
+    "withinReferenceQ50",
+    "withinReferenceQ75",
+    "withinReferenceQ95",
+    "withinReferenceSkewness",
+    "withinReferenceKurtosis",
+    "withinReferenceNormalityPValue",
+    "withinComparisonN",
+    "withinComparisonFiniteN",
+    "withinComparisonMean",
+    "withinComparisonMdn",
+    "withinComparisonSd",
+    "withinComparisonVariance",
+    "withinComparisonMin",
+    "withinComparisonMax",
+    "withinComparisonQ05",
+    "withinComparisonQ25",
+    "withinComparisonQ50",
+    "withinComparisonQ75",
+    "withinComparisonQ95",
+    "withinComparisonSkewness",
+    "withinComparisonKurtosis",
+    "withinComparisonNormalityPValue",
+    "betweenGroupsN",
+    "betweenGroupsFiniteN",
+    "betweenGroupsMean",
+    "betweenGroupsMdn",
+    "betweenGroupsSd",
+    "betweenGroupsVariance",
+    "betweenGroupsMin",
+    "betweenGroupsMax",
+    "betweenGroupsQ05",
+    "betweenGroupsQ25",
+    "betweenGroupsQ50",
+    "betweenGroupsQ75",
+    "betweenGroupsQ95",
+    "betweenGroupsSkewness",
+    "betweenGroupsKurtosis",
+    "betweenGroupsNormalityPValue",
     "wassersteinDistance",
     "normalizedWassersteinDistance",
     "energyDistance",
     "ksStatistic",
     "ksPValue",
-    "meanDelta",
-    "meanRatio",
-    "mdnDelta",
-    "mdnRatio",
-    "sdDelta",
-    "sdRatio",
+    "betweenGroupsMeanDelta",
+    "betweenGroupsMdnDelta",
+    "betweenGroupsSdDelta",
+    "withinComparisonToReferenceMeanDelta",
+    "withinComparisonToReferenceMeanRatio",
+    "withinComparisonToReferenceMdnDelta",
+    "withinComparisonToReferenceMdnRatio",
+    "withinComparisonToReferenceSdDelta",
+    "withinComparisonToReferenceSdRatio",
 )
 
 
@@ -559,6 +580,8 @@ def _lightweight_distribution_rows(
     candidate_stats_rows: Sequence[Dict[str, object]],
     baseline_rows: Sequence[Dict[str, object]],
     baseline_stats_rows: Sequence[Dict[str, object]],
+    within_comparison_rows: Sequence[Dict[str, object]],
+    within_comparison_stats_rows: Sequence[Dict[str, object]],
     metric_names: Sequence[str],
     round_precision: int | None,
 ) -> List[Dict[str, object]]:
@@ -568,35 +591,55 @@ def _lightweight_distribution_rows(
         return MathUtil.roundTo(value, round_precision)
 
     distribution_rows = []
-    metadata_row = candidate_rows[0] if candidate_rows else {}
+    metadata_row = (
+        candidate_rows[0]
+        if candidate_rows
+        else within_comparison_rows[0]
+        if within_comparison_rows
+        else baseline_rows[0]
+        if baseline_rows
+        else {}
+    )
     for metric_name in metric_names:
-        baseline_values = _finite_metric_values(baseline_rows, metric_name)
-        candidate_values = _finite_metric_values(candidate_rows, metric_name)
-        baseline_stats = _distribution_summary(
-            baseline_values,
+        within_reference_values = _finite_metric_values(baseline_rows, metric_name)
+        within_comparison_values = _finite_metric_values(
+            within_comparison_rows,
+            metric_name,
+        )
+        between_group_values = _finite_metric_values(candidate_rows, metric_name)
+        within_reference_stats = _distribution_summary(
+            within_reference_values,
             len(baseline_rows),
             round_precision,
         )
-        candidate_stats = _distribution_summary(
-            candidate_values,
+        within_comparison_stats = _distribution_summary(
+            within_comparison_values,
+            len(within_comparison_rows),
+            round_precision,
+        )
+        between_group_stats = _distribution_summary(
+            between_group_values,
             len(candidate_rows),
             round_precision,
         )
         distribution_metrics = (
             compute_distribution_metrics(
-                baseline_values,
-                candidate_values,
+                within_reference_values,
+                between_group_values,
                 round_precision=round_precision,
             )
-            if baseline_values and candidate_values
+            if within_reference_values and between_group_values
             else {}
         )
-        baseline_mean = baseline_stats.get("mean")
-        candidate_mean = candidate_stats.get("mean")
-        baseline_mdn = baseline_stats.get("mdn")
-        candidate_mdn = candidate_stats.get("mdn")
-        baseline_sd = baseline_stats.get("sd")
-        candidate_sd = candidate_stats.get("sd")
+        within_reference_mean = within_reference_stats.get("mean")
+        within_comparison_mean = within_comparison_stats.get("mean")
+        between_group_mean = between_group_stats.get("mean")
+        within_reference_mdn = within_reference_stats.get("mdn")
+        within_comparison_mdn = within_comparison_stats.get("mdn")
+        between_group_mdn = between_group_stats.get("mdn")
+        within_reference_sd = within_reference_stats.get("sd")
+        within_comparison_sd = within_comparison_stats.get("sd")
+        between_group_sd = between_group_stats.get("sd")
         wasserstein = distribution_metrics.get("wassersteinDistance")
 
         distribution_rows.append(
@@ -607,51 +650,94 @@ def _lightweight_distribution_rows(
                 "variant": metadata_row.get("variant"),
                 "classKey": metadata_row.get("classKey"),
                 "metric": metric_name,
-                "baselineN": baseline_stats.get("n"),
-                "baselineFiniteN": baseline_stats.get("finiteN"),
-                "baselineMean": baseline_mean,
-                "baselineMdn": baseline_mdn,
-                "baselineSd": baseline_sd,
-                "baselineVariance": baseline_stats.get("variance"),
-                "baselineMin": baseline_stats.get("min"),
-                "baselineMax": baseline_stats.get("max"),
-                "baselineQ05": baseline_stats.get("q05"),
-                "baselineQ25": baseline_stats.get("q25"),
-                "baselineQ50": baseline_stats.get("q50"),
-                "baselineQ75": baseline_stats.get("q75"),
-                "baselineQ95": baseline_stats.get("q95"),
-                "baselineSkewness": baseline_stats.get("skewness"),
-                "baselineKurtosis": baseline_stats.get("kurtosis"),
-                "baselineNormalityPValue": baseline_stats.get("normalityPValue"),
-                "candidateN": candidate_stats.get("n"),
-                "candidateFiniteN": candidate_stats.get("finiteN"),
-                "candidateMean": candidate_mean,
-                "candidateMdn": candidate_mdn,
-                "candidateSd": candidate_sd,
-                "candidateVariance": candidate_stats.get("variance"),
-                "candidateMin": candidate_stats.get("min"),
-                "candidateMax": candidate_stats.get("max"),
-                "candidateQ05": candidate_stats.get("q05"),
-                "candidateQ25": candidate_stats.get("q25"),
-                "candidateQ50": candidate_stats.get("q50"),
-                "candidateQ75": candidate_stats.get("q75"),
-                "candidateQ95": candidate_stats.get("q95"),
-                "candidateSkewness": candidate_stats.get("skewness"),
-                "candidateKurtosis": candidate_stats.get("kurtosis"),
-                "candidateNormalityPValue": candidate_stats.get("normalityPValue"),
+                "withinReferenceN": within_reference_stats.get("n"),
+                "withinReferenceFiniteN": within_reference_stats.get("finiteN"),
+                "withinReferenceMean": within_reference_mean,
+                "withinReferenceMdn": within_reference_mdn,
+                "withinReferenceSd": within_reference_sd,
+                "withinReferenceVariance": within_reference_stats.get("variance"),
+                "withinReferenceMin": within_reference_stats.get("min"),
+                "withinReferenceMax": within_reference_stats.get("max"),
+                "withinReferenceQ05": within_reference_stats.get("q05"),
+                "withinReferenceQ25": within_reference_stats.get("q25"),
+                "withinReferenceQ50": within_reference_stats.get("q50"),
+                "withinReferenceQ75": within_reference_stats.get("q75"),
+                "withinReferenceQ95": within_reference_stats.get("q95"),
+                "withinReferenceSkewness": within_reference_stats.get("skewness"),
+                "withinReferenceKurtosis": within_reference_stats.get("kurtosis"),
+                "withinReferenceNormalityPValue": within_reference_stats.get(
+                    "normalityPValue"
+                ),
+                "withinComparisonN": within_comparison_stats.get("n"),
+                "withinComparisonFiniteN": within_comparison_stats.get("finiteN"),
+                "withinComparisonMean": within_comparison_mean,
+                "withinComparisonMdn": within_comparison_mdn,
+                "withinComparisonSd": within_comparison_sd,
+                "withinComparisonVariance": within_comparison_stats.get("variance"),
+                "withinComparisonMin": within_comparison_stats.get("min"),
+                "withinComparisonMax": within_comparison_stats.get("max"),
+                "withinComparisonQ05": within_comparison_stats.get("q05"),
+                "withinComparisonQ25": within_comparison_stats.get("q25"),
+                "withinComparisonQ50": within_comparison_stats.get("q50"),
+                "withinComparisonQ75": within_comparison_stats.get("q75"),
+                "withinComparisonQ95": within_comparison_stats.get("q95"),
+                "withinComparisonSkewness": within_comparison_stats.get("skewness"),
+                "withinComparisonKurtosis": within_comparison_stats.get("kurtosis"),
+                "withinComparisonNormalityPValue": within_comparison_stats.get(
+                    "normalityPValue"
+                ),
+                "betweenGroupsN": between_group_stats.get("n"),
+                "betweenGroupsFiniteN": between_group_stats.get("finiteN"),
+                "betweenGroupsMean": between_group_mean,
+                "betweenGroupsMdn": between_group_mdn,
+                "betweenGroupsSd": between_group_sd,
+                "betweenGroupsVariance": between_group_stats.get("variance"),
+                "betweenGroupsMin": between_group_stats.get("min"),
+                "betweenGroupsMax": between_group_stats.get("max"),
+                "betweenGroupsQ05": between_group_stats.get("q05"),
+                "betweenGroupsQ25": between_group_stats.get("q25"),
+                "betweenGroupsQ50": between_group_stats.get("q50"),
+                "betweenGroupsQ75": between_group_stats.get("q75"),
+                "betweenGroupsQ95": between_group_stats.get("q95"),
+                "betweenGroupsSkewness": between_group_stats.get("skewness"),
+                "betweenGroupsKurtosis": between_group_stats.get("kurtosis"),
+                "betweenGroupsNormalityPValue": between_group_stats.get(
+                    "normalityPValue"
+                ),
                 "wassersteinDistance": wasserstein,
                 "normalizedWassersteinDistance": rounded(
-                    _ratio(wasserstein, baseline_sd)
+                    _ratio(wasserstein, within_reference_sd)
                 ),
                 "energyDistance": distribution_metrics.get("energyDistance"),
                 "ksStatistic": distribution_metrics.get("ksStatistic"),
                 "ksPValue": distribution_metrics.get("ksPValue"),
-                "meanDelta": rounded(_delta(candidate_mean, baseline_mean)),
-                "meanRatio": rounded(_ratio(candidate_mean, baseline_mean)),
-                "mdnDelta": rounded(_delta(candidate_mdn, baseline_mdn)),
-                "mdnRatio": rounded(_ratio(candidate_mdn, baseline_mdn)),
-                "sdDelta": rounded(_delta(candidate_sd, baseline_sd)),
-                "sdRatio": rounded(_ratio(candidate_sd, baseline_sd)),
+                "betweenGroupsMeanDelta": rounded(
+                    _delta(between_group_mean, within_reference_mean)
+                ),
+                "betweenGroupsMdnDelta": rounded(
+                    _delta(between_group_mdn, within_reference_mdn)
+                ),
+                "betweenGroupsSdDelta": rounded(
+                    _delta(between_group_sd, within_reference_sd)
+                ),
+                "withinComparisonToReferenceMeanDelta": rounded(
+                    _delta(within_comparison_mean, within_reference_mean)
+                ),
+                "withinComparisonToReferenceMeanRatio": rounded(
+                    _ratio(within_comparison_mean, within_reference_mean)
+                ),
+                "withinComparisonToReferenceMdnDelta": rounded(
+                    _delta(within_comparison_mdn, within_reference_mdn)
+                ),
+                "withinComparisonToReferenceMdnRatio": rounded(
+                    _ratio(within_comparison_mdn, within_reference_mdn)
+                ),
+                "withinComparisonToReferenceSdDelta": rounded(
+                    _delta(within_comparison_sd, within_reference_sd)
+                ),
+                "withinComparisonToReferenceSdRatio": rounded(
+                    _ratio(within_comparison_sd, within_reference_sd)
+                ),
             }
         )
     return distribution_rows
@@ -674,7 +760,7 @@ def _compare_class(
     metric_names: Sequence[str],
     dtw_window: int | None,
     exact_dtw: bool,
-) -> tuple[list[dict], list[dict], dict]:
+) -> tuple[list[dict], list[dict], list[dict], list[dict], dict]:
     reference_points = [entry.points for entry in reference_entries]
     effective_rate = sampling_rate_for_sets(reference_points, rate)
     selected_dtw_window = _effective_dtw_window(effective_rate, dtw_window, exact_dtw)
@@ -723,8 +809,76 @@ def _compare_class(
         row.update(metric_values)
         rows.append(row)
 
+    within_comparison_rows = []
+    for left_entry, right_entry in combinations(candidate_entries, 2):
+        forward_values = compute_pair_metrics_from_points(
+            left_entry.points,
+            right_entry.points,
+            class_key,
+            effective_rate,
+            alignment_type=alignment,
+            summary_shape=summary_shape,
+            popular_shape=popular,
+            round_precision=None,
+            metric_names=metric_names,
+            dtw_window=selected_dtw_window,
+            exact_dtw=exact_dtw,
+        )
+        backward_values = compute_pair_metrics_from_points(
+            right_entry.points,
+            left_entry.points,
+            class_key,
+            effective_rate,
+            alignment_type=alignment,
+            summary_shape=summary_shape,
+            popular_shape=popular,
+            round_precision=None,
+            metric_names=metric_names,
+            dtw_window=selected_dtw_window,
+            exact_dtw=exact_dtw,
+        )
+        row = {
+            "runId": run_id,
+            "source": source_name,
+            "dataset": dataset_name,
+            "variant": variant,
+            "classKey": class_key,
+            "pairKey": "%s::%s"
+            % (
+                Path(left_entry.key).with_suffix("").as_posix(),
+                Path(right_entry.key).with_suffix("").as_posix(),
+            ),
+            "candidateFile": "%s::%s" % (left_entry.path, right_entry.path),
+            "referenceInput": str(reference_input),
+            "mode": "within-comparison",
+            "referenceCount": len(reference_entries),
+            "candidateCount": len(candidate_entries),
+            "rate": effective_rate,
+            "requestedRate": rate,
+            "alignment": alignment,
+            "summary": summary_shape,
+            "popular": bool(popular),
+            "dtwWindow": selected_dtw_window,
+            "exactDtw": bool(exact_dtw),
+        }
+        for metric_name in metric_names:
+            row[metric_name] = MathUtil.roundTo(
+                (forward_values[metric_name] + backward_values[metric_name]) / 2.0,
+                round_precision,
+            )
+        within_comparison_rows.append(row)
+
     stats_rows = _summary_stats(
         rows,
+        run_id,
+        source_name,
+        dataset_name,
+        variant,
+        class_key,
+        round_precision,
+    )
+    within_comparison_stats_rows = _summary_stats(
+        within_comparison_rows,
         run_id,
         source_name,
         dataset_name,
@@ -741,6 +895,7 @@ def _compare_class(
         "mode": "reference-summary",
         "referenceCount": len(reference_entries),
         "candidateCount": len(candidate_entries),
+        "withinComparisonPairs": len(within_comparison_rows),
         "rate": effective_rate,
         "requestedRate": rate,
         "alignment": alignment,
@@ -751,7 +906,7 @@ def _compare_class(
         "dtwWindow": selected_dtw_window,
         "exactDtw": bool(exact_dtw),
     }
-    return rows, stats_rows, metadata
+    return rows, stats_rows, within_comparison_rows, within_comparison_stats_rows, metadata
 
 
 def _baseline_stats(
@@ -1143,6 +1298,8 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
                 run_stats: List[Dict[str, object]] = []
                 run_baseline_rows: List[Dict[str, object]] = []
                 run_baseline_stats: List[Dict[str, object]] = []
+                run_within_comparison_rows: List[Dict[str, object]] = []
+                run_within_comparison_stats: List[Dict[str, object]] = []
                 run_distribution_rows: List[Dict[str, object]] = []
                 class_manifests = []
                 skipped_classes = []
@@ -1156,7 +1313,7 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
                         reason = (
                             "missingReference"
                             if len(class_references) == 0
-                            else "missingCandidate"
+                            else "missingComparison"
                         )
                         skipped_classes.append(
                             {
@@ -1169,7 +1326,13 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
                         progress.skip_class(run_id, class_key, reason)
                         continue
 
-                    rows, stats_rows, class_metadata = _compare_class(
+                    (
+                        rows,
+                        stats_rows,
+                        within_comparison_rows,
+                        within_comparison_stats_rows,
+                        class_metadata,
+                    ) = _compare_class(
                         class_references,
                         class_candidates,
                         run_id,
@@ -1242,6 +1405,8 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
                         stats_rows,
                         baseline_rows,
                         baseline_stats_rows,
+                        within_comparison_rows,
+                        within_comparison_stats_rows,
                         metric_names,
                         round_precision,
                     )
@@ -1255,6 +1420,8 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
                     run_stats.extend(stats_rows)
                     run_baseline_rows.extend(baseline_rows)
                     run_baseline_stats.extend(baseline_stats_rows)
+                    run_within_comparison_rows.extend(within_comparison_rows)
+                    run_within_comparison_stats.extend(within_comparison_stats_rows)
                     run_distribution_rows.extend(class_distribution_rows)
                     class_manifests.append(
                         {
@@ -1263,6 +1430,10 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
                             "outputDir": str(class_output_dir),
                             "pairwiseRows": len(rows),
                             "statsRows": len(stats_rows),
+                            "withinComparisonRows": len(within_comparison_rows),
+                            "withinComparisonStatsRows": len(
+                                within_comparison_stats_rows
+                            ),
                             "baselineRows": len(baseline_rows),
                             "baselineStatsRows": len(baseline_stats_rows),
                             "distributionRows": len(class_distribution_rows),
@@ -1283,6 +1454,8 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
                     "statsRows": len(run_stats),
                     "baselineRows": len(run_baseline_rows),
                     "baselineStatsRows": len(run_baseline_stats),
+                    "withinComparisonRows": len(run_within_comparison_rows),
+                    "withinComparisonStatsRows": len(run_within_comparison_stats),
                     "distributionRows": len(run_distribution_rows),
                     "classes": class_manifests,
                     "skippedClasses": skipped_classes,

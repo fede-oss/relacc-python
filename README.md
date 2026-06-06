@@ -255,12 +255,13 @@ Key flags:
 
 `relacc-distribution` compares **metric distributions** instead of individual pairs.
 
-V1 workflow:
+Workflow:
 
 - Group samples by class.
-- Build a **human-human baseline** distribution inside each class from unordered reference-reference pairs.
-- Build a **generated-human** distribution inside each class from all reference-candidate pairs.
-- Compare the two scalar distributions for every gesture metric, then pool an overall summary across valid classes.
+- Build a **within-reference** distribution inside each class from unordered reference-reference pairs.
+- Build a **within-comparison** distribution inside each class from unordered comparison-comparison pairs.
+- Build a **between-groups** distribution inside each class from all reference-comparison pairs.
+- Compare within-reference against between-groups for distribution-distance metrics, and compare within-comparison against within-reference for variability ratios.
 
 Grouping modes:
 
@@ -272,16 +273,25 @@ Grouping modes:
 A class is considered valid when it has:
 
 - at least 2 reference CSVs
-- at least 1 candidate CSV
+- at least 1 comparison CSV
+
+Within-comparison variability requires at least 2 comparison CSVs in a class. If
+there is only one comparison sample, within-comparison summaries and ratios are
+blank/NaN for that class.
 
 Output shape:
 
 - JSON: `metadata` plus `results.perClass` and `results.overall`
 - CSV: one flattened row per `scope x gestureMetric`
 
-Each distribution row compares the human-human baseline values against the
-generated-human candidate values for one gesture metric. In addition to the
-distribution-distance metrics below, each side includes these summary fields:
+Each distribution row describes one gesture metric for either a class or the
+pooled overall scope. The row includes separate summaries for:
+
+- `withinReferenceStats`: reference-vs-reference distances
+- `withinComparisonStats`: comparison-vs-comparison distances
+- `betweenGroupsStats`: reference-vs-comparison distances
+
+Each summary includes these fields:
 
 | Field | What it means |
 |---|---|
@@ -296,11 +306,23 @@ distribution-distance metrics below, each side includes these summary fields:
 | `normalityPValue` | Lightweight normality diagnostic when there are at least 8 values; blank/NaN for tiny or constant samples |
 | `n` | Number of finite values used in the summary |
 
-In CSV output these fields are prefixed with `baseline` or `candidate`, for
-example `baselineQ95`, `candidateSkewness`, and `candidateKurtosis`. They are
-intended to support the report/histogram workflow: the mean and median show
-center, `sd`/`variance`/quantiles show spread and tails, and skewness/kurtosis
-help explain whether generated errors have asymmetric or outlier-heavy shapes.
+In CSV output these fields are prefixed with `withinReference`,
+`withinComparison`, or `betweenGroups`, for example `withinReferenceQ95`,
+`withinComparisonSkewness`, and `betweenGroupsKurtosis`. The fields are intended
+to support the report/histogram workflow: the mean and median show center,
+`sd`/`variance`/quantiles show spread and tails, and skewness/kurtosis help
+explain whether errors have asymmetric or outlier-heavy shapes.
+
+The ratio fields compare equivalent quantities:
+
+- `withinComparisonToReferenceMeanRatio`
+- `withinComparisonToReferenceMdnRatio`
+- `withinComparisonToReferenceSdRatio`
+
+These replace the older generated-vs-reference-summary ratio. For migration,
+CSV output can still use old `baseline*` and `candidate*` column names with
+`--legacy-column-names`, and JSON can include old aliases with
+`--legacy-json-fields`.
 
 Examples:
 
@@ -317,6 +339,10 @@ Key flags:
 | Flag | Default | Description |
 |---|---|---|
 | `--group-by` | `filename-label` | Class grouping mode: `filename-label` or `parent-dir` |
+| `--reference-name` | `reference` | Label stored in JSON metadata for the reference group |
+| `--comparison-name` | `comparison` | Label stored in JSON metadata for the comparison group |
+| `--legacy-column-names` | off | Emit old CSV names such as `baselineMean` and `candidateMean` |
+| `--legacy-json-fields` | off | Include old JSON aliases such as `baselineStats` and `candidateStats` |
 | `-m, --summary` | *(first reference gesture)* | Summary strategy reused from pairwise comparison |
 | `-p, --popular` | off | Filter to most common stroke count when building the per-reference summary |
 | `-r, --rate` | auto | Resampling rate; auto-estimated from reference samples only |
@@ -341,23 +367,21 @@ Current distribution metrics:
 The reporting pipeline can export the unaggregated metric samples that sit
 under the histogram and distribution-summary workflow:
 
-- `raw_baseline_pairs.csv`: human-human baseline values. For each selected
+- `raw_baseline_pairs.csv`: within-reference values. For each selected
   dataset/class, every reference-reference pair is compared in both directions.
-- `raw_candidate_pairs.csv`: human-generated values. For each selected
+- `raw_candidate_pairs.csv`: between-groups values. For each selected
   dataset/class, every selected reference gesture is compared with every
-  selected candidate gesture.
+  selected comparison gesture.
 
 Both files are long-form CSVs with the same schema:
 
-For `R` selected reference gestures, `C` selected candidate gestures, and `M`
+For `R` selected reference gestures, `C` selected comparison gestures, and `M`
 gesture metrics, the baseline file has `R choose 2 * 2 * M` rows and the
-candidate file has `R * C * M` rows. To draw a histogram, filter each file by
+comparison file has `R * C * M` rows. To draw a histogram, filter each file by
 `datasetKey`, `classKey`, and `metric`, then plot the `value` column from the
-baseline file against the `value` column from the candidate file. The same value
+baseline file against the `value` column from the comparison file. The same value
 arrays can later be reused for means, medians, quantiles, skewness, kurtosis,
 Wasserstein distance, energy distance, and KS tests.
-
-Although running this distribution evaluation would explode exponentially as it computes the cross-product and is not really feasible.
 
 ---
 

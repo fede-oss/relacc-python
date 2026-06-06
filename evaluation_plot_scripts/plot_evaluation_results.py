@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Create analysis plots from run_all_pairwise_reports.py outputs.
 
-The generated report data compares each sample to a human class summary:
+The report data uses generic comparison groups:
 
-* baseline.csv: human samples -> human summary
-* pairwise.csv: generated samples -> human summary
-* distribution.csv: per-class/per-metric baseline-vs-generated summaries
+* baseline.csv: reference samples -> reference summary
+* pairwise.csv: comparison samples -> reference summary
+* distribution.csv: per-class/per-metric variability summaries
 
-The plots below treat the human baseline as the target distribution. A good
-generator is therefore close to the human baseline, not necessarily close to
-zero.
+The preferred ratio is within-comparison variability divided by
+within-reference variability. Older distribution.csv files are still accepted
+through legacy-column fallbacks.
 """
 
 from __future__ import annotations
@@ -145,6 +145,27 @@ def to_float(value: object) -> float | None:
     return parsed
 
 
+def first_float(row: dict, *field_names: str) -> float | None:
+    for field_name in field_names:
+        value = to_float(row.get(field_name))
+        if value is not None:
+            return value
+    return None
+
+
+def distribution_ratio(row: dict) -> float | None:
+    return first_float(
+        row,
+        "withinComparisonToReferenceMeanRatio",
+        "withinCandidateToBaselineMeanRatio",
+        "meanRatio",
+    )
+
+
+def distribution_value(row: dict, generic_field: str, legacy_field: str) -> float | None:
+    return first_float(row, generic_field, legacy_field)
+
+
 def finite_values(rows: Iterable[dict], metric: str) -> list[float]:
     values = []
     for row in rows:
@@ -206,15 +227,15 @@ def write_csv(path: Path, rows: list[dict], columns: list[str]) -> None:
 
 
 def valid_log_ratio(row: dict) -> float | None:
-    baseline_mean = to_float(row.get("baselineMean"))
-    candidate_mean = to_float(row.get("candidateMean"))
-    ratio = to_float(row.get("meanRatio"))
+    reference_mean = distribution_value(row, "withinReferenceMean", "baselineMean")
+    comparison_mean = distribution_value(row, "withinComparisonMean", "candidateMean")
+    ratio = distribution_ratio(row)
     if (
-        baseline_mean is None
-        or candidate_mean is None
+        reference_mean is None
+        or comparison_mean is None
         or ratio is None
-        or baseline_mean <= EPSILON
-        or candidate_mean <= EPSILON
+        or reference_mean <= EPSILON
+        or comparison_mean <= EPSILON
         or ratio <= EPSILON
     ):
         return None
@@ -226,10 +247,10 @@ def valid_normalized_w(row: dict) -> float | None:
     if value is not None and value >= 0:
         return value
     wasserstein = to_float(row.get("wassersteinDistance"))
-    baseline_sd = to_float(row.get("baselineSd"))
-    if wasserstein is None or baseline_sd is None or baseline_sd <= EPSILON:
+    reference_sd = distribution_value(row, "withinReferenceSd", "baselineSd")
+    if wasserstein is None or reference_sd is None or reference_sd <= EPSILON:
         return None
-    return wasserstein / baseline_sd
+    return wasserstein / reference_sd
 
 
 def valid_ks(row: dict) -> float | None:
@@ -288,8 +309,18 @@ def build_overview_tables(distribution_rows: list[dict], output_dir: Path) -> tu
                 "logRatioScore": mean_or_none(valid_log_ratio(row) for row in rows),
                 "normalizedWasserstein": mean_or_none(valid_normalized_w(row) for row in rows),
                 "ksStatistic": mean_or_none(valid_ks(row) for row in rows),
-                "meanRatioMedian": mean_or_none(to_float(row.get("meanRatio")) for row in rows),
-                "sdRatioMedian": mean_or_none(to_float(row.get("sdRatio")) for row in rows),
+                "withinComparisonToReferenceMeanRatio": mean_or_none(
+                    distribution_ratio(row) for row in rows
+                ),
+                "withinComparisonToReferenceSdRatio": mean_or_none(
+                    first_float(
+                        row,
+                        "withinComparisonToReferenceSdRatio",
+                        "withinCandidateToBaselineSdRatio",
+                        "sdRatio",
+                    )
+                    for row in rows
+                ),
             }
         )
 
@@ -321,8 +352,8 @@ def build_overview_tables(distribution_rows: list[dict], output_dir: Path) -> tu
             "logRatioScore",
             "normalizedWasserstein",
             "ksStatistic",
-            "meanRatioMedian",
-            "sdRatioMedian",
+            "withinComparisonToReferenceMeanRatio",
+            "withinComparisonToReferenceSdRatio",
         ],
     )
     return overview_rows, metric_rows
@@ -396,18 +427,18 @@ def plot_overview(overview_rows: list[dict], output_dir: Path) -> None:
         "sourceLabel",
         "dataset",
         "coreLogRatioScore",
-        "Core metric human-likeness by source and dataset",
+        "Core metric variability ratio by source and dataset",
         output_dir / "heatmaps" / "source_dataset_core_log_ratio.png",
-        value_label="mean abs log(candidateMean / humanMean)",
+        value_label="mean abs log(within-comparison / within-reference)",
     )
     plot_heatmap(
         overview_rows,
         "sourceLabel",
         "dataset",
         "coreNormalizedWasserstein",
-        "Core metric normalized Wasserstein by source and dataset",
+        "Core metric reference-vs-between-group Wasserstein by source and dataset",
         output_dir / "heatmaps" / "source_dataset_core_normalized_wasserstein.png",
-        value_label="Wasserstein / human SD",
+        value_label="Wasserstein / within-reference SD",
     )
     plot_heatmap(
         overview_rows,
@@ -432,7 +463,7 @@ def plot_overview(overview_rows: list[dict], output_dir: Path) -> None:
     fig, ax = plt.subplots(figsize=(9, max(4, 0.45 * len(source_scores) + 1)))
     ax.barh([item[0] for item in source_scores], [item[1] for item in source_scores], color="#4477aa")
     ax.invert_yaxis()
-    ax.set_xlabel("Mean core abs log ratio, lower is better")
+    ax.set_xlabel("Mean core abs log variability ratio, lower is better")
     ax.set_title("Overall source ranking across datasets")
     fig.tight_layout()
     ensure_dir(output_dir / "overview")
@@ -442,8 +473,8 @@ def plot_overview(overview_rows: list[dict], output_dir: Path) -> None:
     plot_grouped_bar(
         overview_rows,
         "coreLogRatioScore",
-        "Core abs log ratio, lower is better",
-        "Per-dataset generator comparison: core metrics",
+        "Core abs log variability ratio, lower is better",
+        "Per-dataset comparison-group ranking: core metrics",
         output_dir / "grouped_bars" / "families" / "per_dataset_core_score_by_source.png",
     )
 
@@ -494,8 +525,8 @@ def plot_grouped_bars_for_all_scores(
         plot_grouped_bar(
             overview_rows,
             f"{family}LogRatioScore",
-            f"{family} abs log ratio, lower is better",
-            f"Per-dataset generator comparison: {family} metrics",
+            f"{family} abs log variability ratio, lower is better",
+            f"Per-dataset comparison-group ranking: {family} metrics",
             output_dir
             / "grouped_bars"
             / "families"
@@ -516,8 +547,8 @@ def plot_grouped_bars_for_all_scores(
         plot_grouped_bar(
             rows,
             "logRatioScore",
-            f"{metric} abs log ratio, lower is better",
-            f"Per-dataset generator comparison: {metric}",
+            f"{metric} abs log variability ratio, lower is better",
+            f"Per-dataset comparison-group ranking: {metric}",
             output_dir
             / "grouped_bars"
             / "metrics"
@@ -546,9 +577,9 @@ def plot_metric_family_breakdown(overview_rows: list[dict], output_dir: Path) ->
         "sourceLabel",
         "family",
         "score",
-        "Metric-family human-likeness by source",
+        "Metric-family variability ratio by source",
         output_dir / "metric_families" / "source_metric_family_log_ratio.png",
-        value_label="mean abs log ratio",
+        value_label="mean abs log variability ratio",
     )
 
 
@@ -562,8 +593,8 @@ def plot_metric_scatters(distribution_rows: list[dict], output_dir: Path) -> Non
         for row in distribution_rows:
             if row["metric"] != metric:
                 continue
-            x = to_float(row.get("baselineMean"))
-            y = to_float(row.get("candidateMean"))
+            x = distribution_value(row, "withinReferenceMean", "baselineMean")
+            y = distribution_value(row, "betweenGroupsMean", "candidateMean")
             if x is None or y is None or x < 0 or y < 0:
                 continue
             xs.append(x)
@@ -575,15 +606,18 @@ def plot_metric_scatters(distribution_rows: list[dict], output_dir: Path) -> Non
         fig, ax = plt.subplots(figsize=(6.5, 6))
         scatter = ax.scatter(xs, ys, c=colors, cmap="tab10", alpha=0.42, s=12)
         ax.plot([0, max_value], [0, max_value], color="black", linewidth=1, linestyle="--")
-        ax.set_xlabel("Human baseline mean")
-        ax.set_ylabel("Generated mean")
-        ax.set_title(f"Human mean vs generated mean: {metric}")
+        ax.set_xlabel("Within-reference mean")
+        ax.set_ylabel("Between-group mean")
+        ax.set_title(f"Within-reference vs between-group mean: {metric}")
         handles, _ = scatter.legend_elements(num=len(labels))
         if len(handles) == len(labels):
             ax.legend(handles, labels, title="source", fontsize=7, loc="best")
         fig.tight_layout()
         ensure_dir(output_dir / "scatter")
-        fig.savefig(output_dir / "scatter" / f"human_vs_generated_mean_{safe_name(metric)}.png", dpi=180)
+        fig.savefig(
+            output_dir / "scatter" / f"within_reference_vs_between_groups_{safe_name(metric)}.png",
+            dpi=180,
+        )
         plt.close(fig)
 
 
@@ -592,25 +626,30 @@ def plot_ratio_boxplots(distribution_rows: list[dict], output_dir: Path) -> None
     for row in distribution_rows:
         if row["metric"] not in CORE_METRICS:
             continue
-        value = to_float(row.get("meanRatio"))
-        baseline = to_float(row.get("baselineMean"))
-        candidate = to_float(row.get("candidateMean"))
-        if value is None or baseline is None or candidate is None:
+        value = distribution_ratio(row)
+        reference = distribution_value(row, "withinReferenceMean", "baselineMean")
+        comparison = distribution_value(row, "withinComparisonMean", "candidateMean")
+        if value is None or reference is None or comparison is None:
             continue
-        if baseline <= EPSILON or candidate <= EPSILON or value <= EPSILON:
+        if reference <= EPSILON or comparison <= EPSILON or value <= EPSILON:
             continue
         rows_by_label[row["_runLabel"]].append(value)
     labels = sorted(rows_by_label)
     data = [rows_by_label[label] for label in labels]
+    if not data:
+        return
     fig, ax = plt.subplots(figsize=(max(8, len(labels) * 0.8), 5.5))
     ax.boxplot(data, tick_labels=labels, showfliers=False)
     ax.axhline(1.0, color="black", linestyle="--", linewidth=1)
-    ax.set_ylabel("candidateMean / humanMean")
-    ax.set_title("Core metric mean ratios by source")
+    ax.set_ylabel("withinComparisonMean / withinReferenceMean")
+    ax.set_title("Core metric within-variability ratios by source")
     ax.tick_params(axis="x", rotation=35)
     fig.tight_layout()
     ensure_dir(output_dir / "boxplots")
-    fig.savefig(output_dir / "boxplots" / "core_mean_ratio_by_source.png", dpi=180)
+    fig.savefig(
+        output_dir / "boxplots" / "core_within_variability_ratio_by_source.png",
+        dpi=180,
+    )
     plt.close(fig)
 
 
@@ -701,8 +740,22 @@ def plot_histogram_and_ecdf(
     bins = np.linspace(lo, hi, 36)
 
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
-    ax.hist(baseline_clip, bins=bins, alpha=0.55, density=True, label="human baseline", color="#4477aa")
-    ax.hist(candidate_clip, bins=bins, alpha=0.55, density=True, label="generated", color="#cc6677")
+    ax.hist(
+        baseline_clip,
+        bins=bins,
+        alpha=0.55,
+        density=True,
+        label="reference summary baseline",
+        color="#4477aa",
+    )
+    ax.hist(
+        candidate_clip,
+        bins=bins,
+        alpha=0.55,
+        density=True,
+        label="comparison to reference summary",
+        color="#cc6677",
+    )
     ax.axvline(statistics.median(baseline_values), color="#225588", linestyle="--", linewidth=1)
     ax.axvline(statistics.median(candidate_values), color="#aa3355", linestyle="--", linewidth=1)
     ax.set_title(title)
@@ -715,8 +768,8 @@ def plot_histogram_and_ecdf(
 
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
     for values, label, color in [
-        (baseline_values, "human baseline", "#4477aa"),
-        (candidate_values, "generated", "#cc6677"),
+        (baseline_values, "reference summary baseline", "#4477aa"),
+        (candidate_values, "comparison to reference summary", "#cc6677"),
     ]:
         sorted_values = np.sort(np.asarray(values, dtype=float))
         y = np.arange(1, len(sorted_values) + 1) / len(sorted_values)
@@ -821,15 +874,15 @@ def compute_envelope_pass_rates(input_dir: Path, output_dir: Path) -> list[dict]
                         "variant": variant,
                         "classKey": class_key,
                         "metric": metric,
-                        "baselineQ05": q05,
-                        "baselineQ95": q95,
-                        "candidateN": len(candidate_values),
+                        "referenceQ05": q05,
+                        "referenceQ95": q95,
+                        "comparisonN": len(candidate_values),
                         "passRate": passed / len(candidate_values),
                     }
                 )
 
     write_csv(
-        output_dir / "tables" / "human_envelope_pass_rates.csv",
+        output_dir / "tables" / "reference_envelope_pass_rates.csv",
         rows,
         [
             "sourceLabel",
@@ -838,9 +891,9 @@ def compute_envelope_pass_rates(input_dir: Path, output_dir: Path) -> list[dict]
             "variant",
             "classKey",
             "metric",
-            "baselineQ05",
-            "baselineQ95",
-            "candidateN",
+            "referenceQ05",
+            "referenceQ95",
+            "comparisonN",
             "passRate",
         ],
     )
@@ -868,7 +921,7 @@ def compute_envelope_pass_rates(input_dir: Path, output_dir: Path) -> list[dict]
                     )
 
     write_csv(
-        output_dir / "tables" / "human_envelope_pass_rate_summary.csv",
+        output_dir / "tables" / "reference_envelope_pass_rate_summary.csv",
         summary_rows,
         ["sourceLabel", "dataset", "family", "passRate"],
     )
@@ -879,10 +932,10 @@ def compute_envelope_pass_rates(input_dir: Path, output_dir: Path) -> list[dict]
         "sourceLabel",
         "dataset",
         "passRate",
-        "Human envelope pass rate, core metrics",
+        "Reference envelope pass rate, core metrics",
         output_dir / "envelope" / "source_dataset_core_pass_rate.png",
         cmap="viridis",
-        value_label="share inside human p05-p95; higher is better",
+        value_label="share inside reference p05-p95; higher is better",
     )
     return rows
 

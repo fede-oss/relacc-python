@@ -32,8 +32,12 @@ def _int_cast(value):
 def build_parser():
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("reference", nargs="?")
-    parser.add_argument("candidate", nargs="?")
+    parser.add_argument("candidate", nargs="?", metavar="comparison")
     parser.add_argument("--group-by", default=GROUP_BY_FILENAME_LABEL, choices=GROUP_BY_MODES)
+    parser.add_argument("--reference-name", default="reference")
+    parser.add_argument("--comparison-name", default="comparison")
+    parser.add_argument("--legacy-column-names", action="store_true")
+    parser.add_argument("--legacy-json-fields", action="store_true")
     parser.add_argument("-r", "--rate")
     parser.add_argument("-a", "--alignment")
     parser.add_argument("-m", "--summary")
@@ -67,7 +71,7 @@ def main(argv=None):
 
     if not opt.reference or not opt.candidate:
         parser.print_help()
-        raise ValueError("Please provide both reference and candidate inputs.")
+        raise ValueError("Please provide both reference and comparison inputs.")
 
     paths = sidecar_paths(opt.output, opt.log_dir, stem="distribution")
     metadata = build_run_metadata(parser, opt, argv, "distribution")
@@ -102,6 +106,9 @@ def _run_experiment(opt, paths=None, metadata=None):
         group_by=opt.group_by,
         dtw_window=dtw_window,
         exact_dtw=bool(opt.exact_dtw),
+        reference_group_name=opt.reference_name,
+        comparison_group_name=opt.comparison_name,
+        include_legacy_fields=bool(opt.legacy_json_fields),
     )
     record_effective_config(
         paths or {},
@@ -126,7 +133,10 @@ def _run_experiment(opt, paths=None, metadata=None):
     if fmt == "json":
         result = json.dumps(payload)
     else:
-        result = format_distribution_rows_csv(payload["results"])
+        result = format_distribution_rows_csv(
+            payload["results"],
+            legacy_column_names=bool(opt.legacy_column_names),
+        )
 
     _display_result(result, opt.output, debug)
     append_run_log(paths or {}, "Output format: %s" % fmt)
