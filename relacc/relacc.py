@@ -327,7 +327,7 @@ def speedArray(points):
         index2 = min(i + r, n - 1)
         distance = PointSet.pathLength(points, index1, index2)
         time = points[index2].T - points[index1].T
-        if abs(time) < 1e-5:
+        if time <= 1e-5:
             v.append(0)
         else:
             v.append(distance / time)
