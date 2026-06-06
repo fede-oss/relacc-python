@@ -2,6 +2,8 @@ import csv
 import json
 from pathlib import Path
 
+import pytest
+
 import run_all_pairwise_reports as PairwiseReports
 
 
@@ -55,6 +57,8 @@ def test_run_all_pairwise_reports_writes_lightweight_human_baseline(tmp_path):
                 "generated",
                 "--rate",
                 "8",
+                "--verbosity",
+                "2",
             ]
         )
         == 0
@@ -69,6 +73,7 @@ def test_run_all_pairwise_reports_writes_lightweight_human_baseline(tmp_path):
     run_distribution_rows = _read_csv(run_dir / "distribution.csv")
     top_distribution_rows = _read_csv(output_dir / "distribution.csv")
     run_manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    run_metadata = json.loads((output_dir / "run.json").read_text(encoding="utf-8"))
 
     assert len(pairwise_rows) == 1
     assert pairwise_rows[0]["mode"] == "reference-summary"
@@ -90,3 +95,19 @@ def test_run_all_pairwise_reports_writes_lightweight_human_baseline(tmp_path):
     assert run_manifest["distributionRows"] == len(distribution_rows)
     assert run_manifest["classes"][0]["baselineMode"] == "human-summary-baseline"
     assert run_manifest["classes"][0]["distributionRows"] == len(distribution_rows)
+    assert run_metadata["experiment"] == "run-all-pairwise-reports"
+    assert run_metadata["runtimeArgs"]["verbose"] == 2
+    assert run_metadata["effectiveConfig"]["outputDir"] == str(output_dir)
+    assert "Parsed arguments (opt):" in (output_dir / "run.log").read_text(
+        encoding="utf-8"
+    )
+    assert "planned 1 runs" in (output_dir / "stdout.log").read_text(encoding="utf-8")
+
+
+def test_run_all_summary_validation_rejects_impossible_bounds():
+    with pytest.raises(ValueError, match="outside min=0.0 and max=1.0"):
+        PairwiseReports._validate_bounded_stats(
+            {"mean": 17.0, "mdn": 0.0, "min": 0.0, "max": 1.0},
+            ("mean", "mdn"),
+            "strokeError",
+        )

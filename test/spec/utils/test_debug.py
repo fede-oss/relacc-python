@@ -15,6 +15,14 @@ def test_debug_silent_when_not_verbose(capsys):
     assert captured.err == ""
 
 
+def test_debug_verbosity_levels(capsys):
+    dbg = Debug({"verbose": 1})
+    dbg.log("detail")
+    dbg.warning("careful")
+    captured = capsys.readouterr()
+    assert captured.err == "careful\n"
+
+
 def test_debug_printf_format(capsys):
     dbg = Debug({"verbose": True})
     dbg.fmt("%d is a number", 42)

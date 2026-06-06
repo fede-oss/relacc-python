@@ -14,6 +14,16 @@ from relacc.pipeline.one_vs_many import (
 )
 from relacc.utils.date import DateUtil
 from relacc.utils.debug import Debug
+from relacc.utils.runlog import (
+    add_run_logging_arguments,
+    append_run_log,
+    build_run_metadata,
+    record_effective_config,
+    run_logged_experiment,
+    sidecar_paths,
+    verbosity_from_opt,
+    write_run_metadata,
+)
 
 
 def _bool_cast(value):
@@ -108,7 +118,7 @@ def build_parser():
     parser.add_argument("--round")
     parser.add_argument("--exact-dtw", action="store_true")
     parser.add_argument("--dtw-window")
-    parser.add_argument("-v", "--verbose", action="store_true")
+    add_run_logging_arguments(parser)
     parser.add_argument("-h", "--help", action="store_true")
     parser.add_argument("files", nargs="*")
     return parser
@@ -126,7 +136,14 @@ def main(argv=None):
         parser.print_help()
         raise ValueError("Please provide some gesture files as input.")
 
-    debug = Debug({"verbose": bool(opt.verbose)})
+    paths = sidecar_paths(opt.output, opt.log_dir, stem="one-vs-many")
+    metadata = build_run_metadata(parser, opt, argv, "one-vs-many")
+    write_run_metadata(paths, metadata)
+    return run_logged_experiment(paths, lambda: _run_experiment(opt, paths, metadata))
+
+
+def _run_experiment(opt, paths=None, metadata=None):
+    debug = Debug({"verbose": verbosity_from_opt(opt)})
     fmt = _get_format(opt.output, opt.format, opt.stats)
     if fmt not in ["json", "csv", "xml", *TEXT_FORMATS]:
         raise ValueError(
@@ -139,6 +156,21 @@ def main(argv=None):
     parsed_round = _int_cast(opt.round)
     round_precision = 3 if parsed_round is None else parsed_round
     dtw_window = _int_cast(opt.dtw_window)
+    effective_config = {
+        "format": fmt,
+        "label": opt.label,
+        "rate": rate,
+        "alignment": alignment,
+        "summary": opt.summary,
+        "popular": bool(opt.popular),
+        "stats": bool(opt.stats),
+        "roundPrecision": round_precision,
+        "dtwWindow": dtw_window,
+        "exactDtw": bool(opt.exact_dtw),
+        "output": opt.output,
+        "files": list(opt.files),
+        "verbosity": verbosity_from_opt(opt),
+    }
 
     payload = run_one_vs_many_comparison(
         opt.files,
@@ -154,19 +186,24 @@ def main(argv=None):
     )
 
     if opt.label is None:
+        effective_config["label"] = payload["metadata"]["label"]
         debug.fmt(
             "Notice: No gesture label provided, I'll assume that all samples are '%s'.",
             payload["metadata"]["label"],
         )
     if rate is None:
+        effective_config["rate"] = payload["metadata"]["rate"]
         debug.fmt(
             "Notice: Setting sampling rate to %s points per gesture.",
             payload["metadata"]["rate"],
         )
+    effective_config["dtwWindow"] = payload["metadata"]["dtwWindow"]
+    record_effective_config(paths or {}, metadata, effective_config)
 
     legacy_args = legacy_args_from_metadata(payload, output=opt.output, fmt=fmt)
     result = format_one_vs_many_result(payload, fmt, legacy_args=legacy_args)
     displayResults(result, opt.output, debug)
+    append_run_log(paths or {}, "Output format: %s" % fmt)
 
     return 0
 
