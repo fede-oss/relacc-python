@@ -226,10 +226,27 @@ def read_csv_rows(path: Path) -> list[dict]:
         return list(csv.DictReader(fh))
 
 
+def infer_report_context(input_dir: Path, path: Path) -> dict[str, str]:
+    parts = path.relative_to(input_dir).parts
+    context = {
+        "source": parts[0] if len(parts) >= 3 else "",
+        "dataset": parts[1] if len(parts) >= 3 else "",
+        "variant": "",
+    }
+    if len(parts) >= 4 and parts[2] not in {"classes", "combined"}:
+        context["variant"] = parts[2]
+    return context
+
+
 def load_distribution_rows(input_dir: Path) -> list[dict]:
     rows = []
     for path in find_report_files(input_dir, "distribution.csv"):
+        context = infer_report_context(input_dir, path)
         for row in read_csv_rows(path):
+            for key, value in context.items():
+                row.setdefault(key, value)
+            if not row.get("metric") and row.get("gestureMetric"):
+                row["metric"] = row["gestureMetric"]
             row["_file"] = str(path)
             row["_runLabel"] = run_label(row)
             rows.append(row)
