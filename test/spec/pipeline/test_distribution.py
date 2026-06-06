@@ -343,6 +343,8 @@ def test_summary_stats_include_shape_quantiles_and_small_n_behavior():
         "mdn": 3.0,
         "sd": 1.58,
         "variance": 2.5,
+        "meanCi95Low": 1.04,
+        "meanCi95High": 4.96,
         "min": 1.0,
         "max": 5.0,
         "q05": 1.2,
@@ -360,6 +362,8 @@ def test_summary_stats_include_shape_quantiles_and_small_n_behavior():
 
     one_value_stats = Distribution._summary_stats([2.0], 2)
     assert one_value_stats["variance"] == 0.0
+    assert one_value_stats["meanCi95Low"] == 2.0
+    assert one_value_stats["meanCi95High"] == 2.0
     assert one_value_stats["q05"] == 2.0
     assert one_value_stats["q95"] == 2.0
     assert math.isnan(one_value_stats["skewness"])
@@ -402,6 +406,8 @@ def test_summary_stats_return_nan_shape_fields_for_empty_samples():
 
     assert stats["n"] == 0
     assert math.isnan(stats["variance"])
+    assert math.isnan(stats["meanCi95Low"])
+    assert math.isnan(stats["meanCi95High"])
     assert math.isnan(stats["q50"])
     assert math.isnan(stats["skewness"])
     assert math.isnan(stats["kurtosis"])
@@ -516,13 +522,19 @@ def test_format_distribution_rows_csv_with_escaping_and_overall_row():
     assert "withinComparisonFiniteSampleCount" in columns
     assert "betweenGroupsFiniteSampleCount" in columns
     assert "withinReferenceVariance" in columns
+    assert "withinReferenceMeanCi95Low" in columns
+    assert "withinReferenceMeanCi95High" in columns
     assert "withinReferenceQ95" in columns
     assert "withinReferenceSkewness" in columns
     assert "withinReferenceKurtosis" in columns
     assert "withinReferenceNormalityPValue" in columns
     assert "withinComparisonVariance" in columns
+    assert "withinComparisonMeanCi95Low" in columns
+    assert "withinComparisonMeanCi95High" in columns
     assert "withinComparisonQ95" in columns
     assert "betweenGroupsVariance" in columns
+    assert "betweenGroupsMeanCi95Low" in columns
+    assert "betweenGroupsMeanCi95High" in columns
     assert "betweenGroupsQ95" in columns
     assert "withinComparisonToReferenceMeanRatio" in columns
     assert "baselineMean" not in columns
@@ -538,5 +550,9 @@ def test_format_distribution_rows_csv_with_escaping_and_overall_row():
     assert "baselineFiniteSampleCount" in legacy_columns
     assert "candidateFiniteSampleCount" in legacy_columns
     assert "baselineMean" in legacy_columns
+    assert "baselineMeanCi95Low" in legacy_columns
+    assert "baselineMeanCi95High" in legacy_columns
     assert "candidateMean" in legacy_columns
+    assert "candidateMeanCi95Low" in legacy_columns
+    assert "candidateMeanCi95High" in legacy_columns
     assert "withinReferenceMean" not in legacy_columns
