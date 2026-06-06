@@ -226,6 +226,36 @@ def test_run_distribution_comparison_outputs_per_class_and_overall(tmp_path):
     assert overall_shape["candidateStats"]["n"] == 7
 
 
+def test_run_distribution_comparison_keeps_stroke_error_stats_coherent(tmp_path):
+    reference_dir = tmp_path / "reference"
+    candidate_dir = tmp_path / "candidate"
+
+    _write_csv(reference_dir / "arrow" / "ref-two-a.csv", _sample_rows(0, 0, 1))
+    _write_csv(reference_dir / "arrow" / "ref-two-b.csv", _sample_rows(1, 0, 1))
+    _write_csv(candidate_dir / "arrow" / "cand-two.csv", _sample_rows(2, 0, 1))
+    _write_csv(candidate_dir / "arrow" / "cand-one.csv", _sample_rows(3, 0, 0))
+
+    payload = Distribution.run_distribution_comparison(
+        str(reference_dir),
+        str(candidate_dir),
+        group_by="parent-dir",
+        rate=4,
+    )
+
+    stroke_row = next(
+        row
+        for row in payload["results"]["overall"]
+        if row["gestureMetric"] == "strokeError"
+    )
+    candidate_stats = stroke_row["candidateStats"]
+    assert candidate_stats["min"] <= candidate_stats["mean"] <= candidate_stats["max"]
+    assert candidate_stats["min"] <= candidate_stats["mdn"] <= candidate_stats["max"]
+    assert candidate_stats["mean"] == 0.5
+    assert candidate_stats["mdn"] == 0.5
+    assert candidate_stats["min"] == 0.0
+    assert candidate_stats["max"] == 1.0
+
+
 def test_run_distribution_comparison_parent_dir_grouping_and_validation(tmp_path):
     reference_dir = tmp_path / "reference"
     candidate_dir = tmp_path / "candidate"
@@ -304,6 +334,29 @@ def test_summary_stats_include_normality_p_value_when_sample_is_large_enough():
     assert stats["skewness"] == 0.0
     assert stats["kurtosis"] == -1.2
     assert stats["normalityPValue"] == 0.427
+
+
+def test_summary_stats_reject_impossible_aggregate_values():
+    with pytest.raises(ValueError, match="outside min=0.0 and max=1.0"):
+        Distribution._validate_summary_stats(
+            {
+                "mean": 17.0,
+                "mdn": 0.0,
+                "sd": 0.0,
+                "variance": 0.0,
+                "min": 0.0,
+                "max": 1.0,
+                "q05": 0.0,
+                "q25": 0.0,
+                "q50": 0.0,
+                "q75": 0.0,
+                "q95": 1.0,
+                "skewness": 0.0,
+                "kurtosis": 0.0,
+                "normalityPValue": 1.0,
+                "n": 3,
+            }
+        )
 
 
 def test_summary_stats_return_nan_shape_fields_for_empty_samples():
@@ -387,6 +440,8 @@ def test_format_distribution_rows_csv_with_escaping_and_overall_row():
     lines = output.splitlines()
     columns = lines[0].split(",")
     assert columns[:3] == ["scope", "classKey", "gestureMetric"]
+    assert "baselineFiniteSampleCount" in columns
+    assert "candidateFiniteSampleCount" in columns
     assert "baselineVariance" in columns
     assert "baselineQ95" in columns
     assert "baselineSkewness" in columns

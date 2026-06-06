@@ -171,6 +171,96 @@ def test_main_csv_and_xml_file_output(tmp_path):
     assert out_xml.read_text(encoding="utf-8").startswith("<?xml")
 
 
+def test_main_file_output_writes_reproducibility_sidecars(tmp_path):
+    f1 = tmp_path / "s1-arrow-t1.csv"
+    f2 = tmp_path / "s1-arrow-t2.csv"
+    _write_csv(f1, _sample_rows(0))
+    _write_csv(f2, _sample_rows(1))
+    out_csv = tmp_path / "out.csv"
+
+    res = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "main.py"),
+            "-s",
+            "--verbosity",
+            "2",
+            "-o",
+            str(out_csv),
+            "-r",
+            "3",
+            str(f1),
+            str(f2),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert res.stdout == ""
+    assert res.stderr == ""
+    metadata = json.loads((tmp_path / "out.csv.run.json").read_text(encoding="utf-8"))
+    assert metadata["experiment"] == "one-vs-many"
+    assert metadata["execution"]["argv"] == [
+        "-s",
+        "--verbosity",
+        "2",
+        "-o",
+        str(out_csv),
+        "-r",
+        "3",
+        str(f1),
+        str(f2),
+    ]
+    assert metadata["defaults"]["verbose"] == 0
+    assert metadata["runtimeArgs"]["verbose"] == 2
+    assert metadata["runtimeArgs"]["output"] == str(out_csv)
+    assert metadata["runtimeArgs"]["files"] == [str(f1), str(f2)]
+    assert metadata["effectiveConfig"]["rate"] == 3
+    assert metadata["effectiveConfig"]["format"] == "csv"
+    assert "gitHead" in metadata["source"]
+
+    run_log = (tmp_path / "out.csv.run.log").read_text(encoding="utf-8")
+    assert "Parsed arguments (opt):" in run_log
+    assert "Effective execution configuration:" in run_log
+    assert '"verbose": 2' in run_log
+    assert "Run completed." in run_log
+    assert (tmp_path / "out.csv.stdout.log").read_text(encoding="utf-8") == ""
+    assert "Results were saved" in (tmp_path / "out.csv.stderr.log").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_main_file_output_verbosity_zero_keeps_stream_logs_silent(tmp_path):
+    f1 = tmp_path / "s1-arrow-t1.csv"
+    f2 = tmp_path / "s1-arrow-t2.csv"
+    _write_csv(f1, _sample_rows(0))
+    _write_csv(f2, _sample_rows(1))
+    out_csv = tmp_path / "out.csv"
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "main.py"),
+            "-s",
+            "-o",
+            str(out_csv),
+            "-r",
+            "3",
+            str(f1),
+            str(f2),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert (tmp_path / "out.csv.stdout.log").read_text(encoding="utf-8") == ""
+    assert (tmp_path / "out.csv.stderr.log").read_text(encoding="utf-8") == ""
+
+
 def test_main_per_file_json_and_csv_output(tmp_path):
     f1 = tmp_path / "s1-arrow-t1.csv"
     f2 = tmp_path / "s1-arrow-t2.csv"

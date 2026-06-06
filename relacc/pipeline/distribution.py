@@ -194,6 +194,22 @@ def _empty_summary_stats(round_precision: int | None):
     }
 
 
+def _validate_summary_stats(stats: Dict[str, float]) -> Dict[str, float]:
+    minimum = stats["min"]
+    maximum = stats["max"]
+    if not (math.isfinite(minimum) and math.isfinite(maximum)):
+        return stats
+
+    for stat_name in ("mean", "mdn", "q05", "q25", "q50", "q75", "q95"):
+        value = stats[stat_name]
+        if math.isfinite(value) and not minimum <= value <= maximum:
+            raise ValueError(
+                "Invalid summary statistics: %s=%s is outside min=%s and max=%s."
+                % (stat_name, value, minimum, maximum)
+            )
+    return stats
+
+
 def _quantile(sorted_values: Sequence[float], fraction: float) -> float:
     if len(sorted_values) == 1:
         return sorted_values[0]
@@ -253,7 +269,7 @@ def _summary_stats(values: Sequence[float], round_precision: int | None):
     minimum = min(finite_values)
     maximum = max(finite_values)
 
-    return {
+    return _validate_summary_stats({
         "mean": _rounded_stat(mean, round_precision),
         "mdn": _rounded_stat(mdn, round_precision),
         "sd": _rounded_stat(sd, round_precision),
@@ -279,7 +295,7 @@ def _summary_stats(values: Sequence[float], round_precision: int | None):
         ),
         "normalityPValue": _normality_p_value(finite_values, round_precision),
         "n": n,
-    }
+    })
 
 
 def _build_result_entry(
@@ -488,7 +504,9 @@ def format_distribution_rows_csv(results: Dict[str, Sequence[Dict[str, object]]]
         "referenceCount",
         "candidateCount",
         "baselineSampleCount",
+        "baselineFiniteSampleCount",
         "candidateSampleCount",
+        "candidateFiniteSampleCount",
         "baselineMean",
         "baselineMdn",
         "baselineSd",
@@ -532,7 +550,9 @@ def format_distribution_rows_csv(results: Dict[str, Sequence[Dict[str, object]]]
             "referenceCount": row.get("referenceCount"),
             "candidateCount": row.get("candidateCount"),
             "baselineSampleCount": row.get("baselineSampleCount"),
+            "baselineFiniteSampleCount": baseline_stats.get("n"),
             "candidateSampleCount": row.get("candidateSampleCount"),
+            "candidateFiniteSampleCount": candidate_stats.get("n"),
             "baselineMean": baseline_stats.get("mean"),
             "baselineMdn": baseline_stats.get("mdn"),
             "baselineSd": baseline_stats.get("sd"),

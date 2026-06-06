@@ -38,6 +38,16 @@ from relacc.pipeline.reporting import (
     _normalize_group_by,
 )
 from relacc.utils.math import MathUtil
+from relacc.utils.runlog import (
+    add_run_logging_arguments,
+    append_run_log,
+    build_run_metadata,
+    record_effective_config,
+    run_logged_experiment,
+    sidecar_paths,
+    verbosity_from_opt,
+    write_run_metadata,
+)
 
 
 DEFAULT_DATASETS_ROOT = Path("/Users/fede/S6-Project/datasets")
@@ -194,9 +204,10 @@ def _format_duration(seconds: float) -> str:
 
 
 class ProgressReporter:
-    def __init__(self, total_candidates: int, total_runs: int):
+    def __init__(self, total_candidates: int, total_runs: int, verbosity: int = 0):
         self.total_candidates = total_candidates
         self.total_runs = total_runs
+        self.verbosity = verbosity
         self.completed_candidates = 0
         self.completed_runs = 0
         self.started_at = time.perf_counter()
@@ -218,6 +229,8 @@ class ProgressReporter:
         )
 
     def start_run(self, run_id: str, candidate_count: int) -> None:
+        if self.verbosity < 2:
+            return
         print(
             self._line(
                 f"starting {run_id} ({candidate_count} candidates);"
@@ -227,6 +240,8 @@ class ProgressReporter:
 
     def finish_class(self, run_id: str, class_key: str, candidate_count: int) -> None:
         self.completed_candidates += candidate_count
+        if self.verbosity < 2:
+            return
         print(
             self._line(
                 f"finished {run_id} class={class_key} rows={candidate_count};"
@@ -235,10 +250,14 @@ class ProgressReporter:
         )
 
     def skip_class(self, run_id: str, class_key: str, reason: str) -> None:
+        if self.verbosity < 1:
+            return
         print(f"skipped {run_id} class={class_key}: {reason}", flush=True)
 
     def finish_run(self, run_id: str, row_count: int) -> None:
         self.completed_runs += 1
+        if self.verbosity < 2:
+            return
         print(
             self._line(f"finished {run_id} rows={row_count};"),
             flush=True,
@@ -332,6 +351,26 @@ def _entries_by_class(entries: Iterable[ReportingEntry]):
     return dict(grouped)
 
 
+def _validate_bounded_stats(
+    stats_row: Dict[str, object],
+    stat_names: Sequence[str],
+    context: str,
+) -> Dict[str, object]:
+    minimum = _numeric_value(stats_row.get("min"))
+    maximum = _numeric_value(stats_row.get("max"))
+    if minimum is None or maximum is None:
+        return stats_row
+
+    for stat_name in stat_names:
+        value = _numeric_value(stats_row.get(stat_name))
+        if value is not None and not minimum <= value <= maximum:
+            raise ValueError(
+                "Invalid summary statistics for %s: %s=%s is outside min=%s and max=%s."
+                % (context, stat_name, value, minimum, maximum)
+            )
+    return stats_row
+
+
 def _summary_stats(
     rows: Sequence[Dict[str, object]],
     run_id: str,
@@ -364,22 +403,27 @@ def _summary_stats(
                 return None
             return MathUtil.roundTo(value, round_precision)
 
+        stats_row = {
+            "runId": run_id,
+            "source": source_name,
+            "dataset": dataset_name,
+            "variant": variant,
+            "classKey": class_key,
+            "metric": metric_name,
+            "n": len(values),
+            "finiteN": finite_n,
+            "mean": rounded(mean),
+            "mdn": rounded(mdn),
+            "sd": rounded(sd),
+            "min": rounded(minimum),
+            "max": rounded(maximum),
+        }
         stats_rows.append(
-            {
-                "runId": run_id,
-                "source": source_name,
-                "dataset": dataset_name,
-                "variant": variant,
-                "classKey": class_key,
-                "metric": metric_name,
-                "n": len(values),
-                "finiteN": finite_n,
-                "mean": rounded(mean),
-                "mdn": rounded(mdn),
-                "sd": rounded(sd),
-                "min": rounded(minimum),
-                "max": rounded(maximum),
-            }
+            _validate_bounded_stats(
+                stats_row,
+                ("mean", "mdn"),
+                f"{run_id}/{class_key}/{metric_name}",
+            )
         )
     return stats_rows
 
@@ -463,7 +507,7 @@ def _distribution_summary(values: Sequence[float], total_n: int, round_precision
     sorted_values = sorted(finite_values)
     variance = statistics.variance(finite_values) if len(finite_values) > 1 else 0.0
     sd = statistics.stdev(finite_values) if len(finite_values) > 1 else 0.0
-    return {
+    summary = {
         "n": total_n,
         "finiteN": len(finite_values),
         "mean": rounded(statistics.fmean(finite_values)),
@@ -491,6 +535,11 @@ def _distribution_summary(values: Sequence[float], total_n: int, round_precision
         ),
         "normalityPValue": rounded(_normality_p_value(finite_values)),
     }
+    return _validate_bounded_stats(
+        summary,
+        ("mean", "mdn", "q05", "q25", "q50", "q75", "q95"),
+        "distribution summary",
+    )
 
 
 def _ratio(numerator: float | None, denominator: float | None):
@@ -912,17 +961,13 @@ def _build_parser():
         default=None,
         help="Optional comma-separated generated source names to run.",
     )
+    add_run_logging_arguments(parser)
     return parser
 
 
-def main(argv=None):
-    parser = _build_parser()
-    opt = parser.parse_args(argv)
-
+def _run_reports(opt, output_root: Path, paths=None, metadata=None):
     datasets_root = Path(opt.datasets_root)
     humans_root = datasets_root / "humans"
-    output_root = Path(opt.output_dir)
-    output_root.mkdir(parents=True, exist_ok=True)
 
     rate = _int_cast(opt.rate)
     round_precision = _int_cast(opt.round)
@@ -947,6 +992,26 @@ def main(argv=None):
         {item.strip() for item in opt.sources.split(",") if item.strip()}
         if opt.sources
         else None
+    )
+    record_effective_config(
+        paths or {},
+        metadata,
+        {
+            "datasetsRoot": str(datasets_root),
+            "outputDir": str(output_root),
+            "rate": rate,
+            "roundPrecision": round_precision,
+            "alignment": alignment,
+            "summary": summary_shape,
+            "popular": bool(opt.popular),
+            "exactDtw": bool(opt.exact_dtw),
+            "dtwWindow": dtw_window,
+            "groupBy": group_by,
+            "classScheme": class_scheme,
+            "datasets": sorted(selected_datasets) if selected_datasets else None,
+            "sources": sorted(selected_sources) if selected_sources else None,
+            "verbosity": verbosity_from_opt(opt),
+        },
     )
 
     manifest = {
@@ -1017,15 +1082,17 @@ def main(argv=None):
     progress = ProgressReporter(
         total_candidates=manifest["plannedCandidateCount"],
         total_runs=manifest["plannedRunCount"],
+        verbosity=verbosity_from_opt(opt),
     )
     all_distribution_rows: List[Dict[str, object]] = []
-    print(
-        (
-            f"planned {manifest['plannedRunCount']} runs and "
-            f"{manifest['plannedCandidateCount']} candidate comparisons"
-        ),
-        flush=True,
-    )
+    if verbosity_from_opt(opt) >= 2:
+        print(
+            (
+                f"planned {manifest['plannedRunCount']} runs and "
+                f"{manifest['plannedCandidateCount']} candidate comparisons"
+            ),
+            flush=True,
+        )
 
     for human_dataset_dir in human_dataset_dirs:
         dataset_name = human_dataset_dir.name
@@ -1261,6 +1328,26 @@ def main(argv=None):
     _write_csv(output_root / "distribution.csv", all_distribution_rows, DISTRIBUTION_COLUMNS)
     _write_json(output_root / "manifest.json", manifest)
     return 0
+
+
+def main(argv=None):
+    parser = _build_parser()
+    opt = parser.parse_args(argv)
+
+    output_root = Path(opt.output_dir)
+    output_root.mkdir(parents=True, exist_ok=True)
+    paths = sidecar_paths(
+        output_root,
+        opt.log_dir,
+        stem="run-all-pairwise-reports",
+        output_is_dir=True,
+    )
+    metadata = build_run_metadata(parser, opt, argv, "run-all-pairwise-reports")
+    write_run_metadata(paths, metadata)
+    return run_logged_experiment(
+        paths,
+        lambda: _run_reports(opt, output_root, paths, metadata),
+    )
 
 
 if __name__ == "__main__":
