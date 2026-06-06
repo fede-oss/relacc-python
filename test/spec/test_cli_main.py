@@ -329,7 +329,7 @@ def test_to_json_encodes_all_non_finite_stats_as_null():
     }
 
 
-def test_main_json_stats_surface_non_finite_metrics(tmp_path):
+def test_main_rejects_gesture_file_with_only_invalid_timestamp_rows(tmp_path):
     valid = tmp_path / "s1-arrow-t1.csv"
     invalid = tmp_path / "s1-arrow-t2.csv"
     _write_csv(valid, _sample_rows(0))
@@ -356,23 +356,13 @@ def test_main_json_stats_surface_non_finite_metrics(tmp_path):
             str(invalid),
         ],
         cwd=ROOT,
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
     )
 
-    payload = json.loads(res.stdout)
-
-    assert payload["results"]["shapeError"]["n"] == 2
-    assert payload["results"]["shapeError"]["mean"] == 0.0
-    assert payload["results"]["timeError"] == {
-        "mean": None,
-        "mdn": None,
-        "sd": None,
-        "min": None,
-        "max": None,
-        "n": 2,
-    }
+    assert res.returncode == 1
+    assert "No points parsed from gesture file" in res.stderr
 
 
 def test_main_rejects_dtw_window_with_exact_dtw(tmp_path):

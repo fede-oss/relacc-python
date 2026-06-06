@@ -45,17 +45,22 @@ class CSVUtil:
                 if len(fields) <= max(index["stroke_id"], index["x"], index["y"], index["time"]):
                     continue
 
-                x = CSVUtil._parse_number(fields[index["x"]])
-                y = CSVUtil._parse_number(fields[index["y"]])
-                time = CSVUtil._parse_number(fields[index["time"]])
-                sid = int(CSVUtil._parse_number(fields[index["stroke_id"]]))
+                try:
+                    x = CSVUtil._parse_number(fields[index["x"]])
+                    y = CSVUtil._parse_number(fields[index["y"]])
+                    time = CSVUtil._parse_number(fields[index["time"]])
+                    sid = int(CSVUtil._parse_number(fields[index["stroke_id"]]))
+                except (TypeError, ValueError, OverflowError):
+                    continue
 
-                if time >= 0:
-                    if time != myTime:
-                        points.append(Point(x, y, time, sid))
-                    myTime = time
-                else:
-                    points.append(Point(x, y, math.nan, sid))
+                if not all(math.isfinite(value) for value in (x, y, time)) or time < 0:
+                    continue
+
+                if myTime is not None and time <= myTime:
+                    continue
+
+                points.append(Point(x, y, time, sid))
+                myTime = time
 
         callback(points)
 
