@@ -49,6 +49,15 @@ SUMMARY_STAT_NAMES: Tuple[str, ...] = (
     "normalityPValue",
     "n",
 )
+WITHIN_REFERENCE_GROUP = "withinReference"
+WITHIN_COMPARISON_GROUP = "withinComparison"
+BETWEEN_GROUPS = "betweenGroups"
+COMPARISON_GROUP_TYPES: Tuple[str, str, str] = (
+    WITHIN_REFERENCE_GROUP,
+    WITHIN_COMPARISON_GROUP,
+    BETWEEN_GROUPS,
+)
+RATIO_STAT_NAMES: Tuple[str, str, str] = ("mean", "mdn", "sd")
 
 
 @dataclass(frozen=True)
@@ -107,8 +116,8 @@ def _invalid_class_entry(class_key: str, reason: str, reference_count: int, cand
     return {
         "classKey": class_key,
         "reason": reason,
-        "referenceCount": reference_count,
-        "candidateCount": candidate_count,
+        "referenceGroupCount": reference_count,
+        "comparisonGroupCount": candidate_count,
     }
 
 
@@ -119,7 +128,7 @@ def discover_class_comparisons(reference_input: str, candidate_input: str, group
 
     candidate_entries = load_csv_entries(candidate_input)
     if len(candidate_entries) == 0:
-        raise ValueError("No candidate CSV files found.")
+        raise ValueError("No comparison CSV files found.")
 
     reference_groups = _group_entries_by_class(reference_entries, group_by)
     candidate_groups = _group_entries_by_class(candidate_entries, group_by)
@@ -139,7 +148,7 @@ def discover_class_comparisons(reference_input: str, candidate_input: str, group
             continue
         if len(candidates) == 0:
             skipped_classes.append(
-                _invalid_class_entry(class_key, "missingCandidate", len(references), 0)
+                _invalid_class_entry(class_key, "missingComparison", len(references), 0)
             )
             continue
         if len(references) < 2:
@@ -164,11 +173,11 @@ def discover_class_comparisons(reference_input: str, candidate_input: str, group
     return valid_classes, skipped_classes, invalid_classes
 
 
-def _unordered_reference_pairs(reference_entries: Sequence[GestureEntry]):
-    return list(combinations(reference_entries, 2))
+def _unordered_pairs(entries: Sequence[GestureEntry]):
+    return list(combinations(entries, 2))
 
 
-def _candidate_reference_pairs(
+def _between_group_pairs(
     reference_entries: Sequence[GestureEntry],
     candidate_entries: Sequence[GestureEntry],
 ):
@@ -298,32 +307,87 @@ def _summary_stats(values: Sequence[float], round_precision: int | None):
     })
 
 
+def _safe_ratio(numerator, denominator, round_precision: int | None):
+    if numerator is None or denominator is None:
+        return _rounded_stat(float("nan"), round_precision)
+    try:
+        numerator_value = float(numerator)
+        denominator_value = float(denominator)
+    except (TypeError, ValueError):
+        return _rounded_stat(float("nan"), round_precision)
+    if not math.isfinite(numerator_value) or not math.isfinite(denominator_value):
+        return _rounded_stat(float("nan"), round_precision)
+    if denominator_value == 0:
+        return _rounded_stat(float("nan"), round_precision)
+    return _rounded_stat(numerator_value / denominator_value, round_precision)
+
+
+def _within_comparison_to_reference_ratios(
+    within_reference_stats: Dict[str, object],
+    within_comparison_stats: Dict[str, object],
+    round_precision: int | None,
+):
+    return {
+        stat_name: _safe_ratio(
+            within_comparison_stats.get(stat_name),
+            within_reference_stats.get(stat_name),
+            round_precision,
+        )
+        for stat_name in RATIO_STAT_NAMES
+    }
+
+
+def _add_legacy_result_fields(result: Dict[str, object]):
+    result["referenceCount"] = result["referenceGroupCount"]
+    result["candidateCount"] = result["comparisonGroupCount"]
+    result["baselineSampleCount"] = result["withinReferenceSampleCount"]
+    result["candidateSampleCount"] = result["betweenGroupsSampleCount"]
+    result["baselineStats"] = result["withinReferenceStats"]
+    result["candidateStats"] = result["betweenGroupsStats"]
+    return result
+
+
 def _build_result_entry(
     scope: str,
     class_key: str | None,
     gesture_metric: str,
-    baseline_values: Sequence[float],
-    candidate_values: Sequence[float],
+    within_reference_values: Sequence[float],
+    within_comparison_values: Sequence[float],
+    between_group_values: Sequence[float],
     round_precision: int,
     reference_count: int,
     candidate_count: int,
+    include_legacy_fields: bool = False,
 ):
-    return {
+    within_reference_stats = _summary_stats(within_reference_values, round_precision)
+    within_comparison_stats = _summary_stats(within_comparison_values, round_precision)
+    between_group_stats = _summary_stats(between_group_values, round_precision)
+    result = {
         "scope": scope,
         "classKey": class_key,
         "gestureMetric": gesture_metric,
-        "referenceCount": reference_count,
-        "candidateCount": candidate_count,
-        "baselineSampleCount": len(baseline_values),
-        "candidateSampleCount": len(candidate_values),
-        "baselineStats": _summary_stats(baseline_values, round_precision),
-        "candidateStats": _summary_stats(candidate_values, round_precision),
+        "referenceGroupCount": reference_count,
+        "comparisonGroupCount": candidate_count,
+        "withinReferenceSampleCount": len(within_reference_values),
+        "withinComparisonSampleCount": len(within_comparison_values),
+        "betweenGroupsSampleCount": len(between_group_values),
+        "withinReferenceStats": within_reference_stats,
+        "withinComparisonStats": within_comparison_stats,
+        "betweenGroupsStats": between_group_stats,
+        "withinComparisonToReferenceRatios": _within_comparison_to_reference_ratios(
+            within_reference_stats,
+            within_comparison_stats,
+            round_precision,
+        ),
         "distributionMetrics": compute_distribution_metrics(
-            baseline_values,
-            candidate_values,
+            within_reference_values,
+            between_group_values,
             round_precision=round_precision,
         ),
     }
+    if include_legacy_fields:
+        _add_legacy_result_fields(result)
+    return result
 
 
 def _metric_samples_for_class(
@@ -339,10 +403,12 @@ def _metric_samples_for_class(
     effective_rate = sampling_rate_for_sets(reference_points, rate)
     selected_dtw_window = effective_dtw_window(effective_rate, dtw_window, exact_dtw)
 
-    baseline_samples = {name: [] for name in METRIC_NAMES}
-    candidate_samples = {name: [] for name in METRIC_NAMES}
+    samples = {
+        group_type: {metric_name: [] for metric_name in METRIC_NAMES}
+        for group_type in COMPARISON_GROUP_TYPES
+    }
 
-    for left_entry, right_entry in _unordered_reference_pairs(spec.reference_entries):
+    for left_entry, right_entry in _unordered_pairs(spec.reference_entries):
         forward_values = compute_pair_metrics_from_points(
             left_entry.points,
             right_entry.points,
@@ -366,11 +432,39 @@ def _metric_samples_for_class(
             exact_dtw=exact_dtw,
         )
         for metric_name in METRIC_NAMES:
-            baseline_samples[metric_name].append(
+            samples[WITHIN_REFERENCE_GROUP][metric_name].append(
                 (forward_values[metric_name] + backward_values[metric_name]) / 2.0
             )
 
-    for reference_entry, candidate_entry in _candidate_reference_pairs(
+    for left_entry, right_entry in _unordered_pairs(spec.candidate_entries):
+        forward_values = compute_pair_metrics_from_points(
+            left_entry.points,
+            right_entry.points,
+            spec.class_key,
+            effective_rate,
+            alignment_type=alignment_type,
+            summary_shape=summary_shape,
+            popular_shape=popular_shape,
+            dtw_window=selected_dtw_window,
+            exact_dtw=exact_dtw,
+        )
+        backward_values = compute_pair_metrics_from_points(
+            right_entry.points,
+            left_entry.points,
+            spec.class_key,
+            effective_rate,
+            alignment_type=alignment_type,
+            summary_shape=summary_shape,
+            popular_shape=popular_shape,
+            dtw_window=selected_dtw_window,
+            exact_dtw=exact_dtw,
+        )
+        for metric_name in METRIC_NAMES:
+            samples[WITHIN_COMPARISON_GROUP][metric_name].append(
+                (forward_values[metric_name] + backward_values[metric_name]) / 2.0
+            )
+
+    for reference_entry, candidate_entry in _between_group_pairs(
         spec.reference_entries,
         spec.candidate_entries,
     ):
@@ -386,9 +480,9 @@ def _metric_samples_for_class(
             exact_dtw=exact_dtw,
         )
         for metric_name in METRIC_NAMES:
-            candidate_samples[metric_name].append(values[metric_name])
+            samples[BETWEEN_GROUPS][metric_name].append(values[metric_name])
 
-    return baseline_samples, candidate_samples, effective_rate, selected_dtw_window
+    return samples, effective_rate, selected_dtw_window
 
 
 def run_distribution_comparison(
@@ -402,6 +496,9 @@ def run_distribution_comparison(
     group_by: str = GROUP_BY_FILENAME_LABEL,
     dtw_window: int | None = None,
     exact_dtw: bool = False,
+    reference_group_name: str = "reference",
+    comparison_group_name: str = "comparison",
+    include_legacy_fields: bool = False,
 ):
     summary_shape = normalize_summary_shape(summary_shape)
     group_by = _normalize_group_by(group_by)
@@ -416,8 +513,8 @@ def run_distribution_comparison(
 
     per_class_results = []
     overall_samples = {
-        metric_name: {"baseline": [], "candidate": []}
-        for metric_name in METRIC_NAMES
+        group_type: {metric_name: [] for metric_name in METRIC_NAMES}
+        for group_type in COMPARISON_GROUP_TYPES
     }
 
     total_reference_count = 0
@@ -425,7 +522,7 @@ def run_distribution_comparison(
     effective_dtw_windows = set()
 
     for spec in valid_classes:
-        baseline_samples, candidate_samples, _, selected_dtw_window = _metric_samples_for_class(
+        class_samples, _, selected_dtw_window = _metric_samples_for_class(
             spec,
             rate=rate,
             alignment_type=alignment_type,
@@ -439,20 +536,28 @@ def run_distribution_comparison(
         total_candidate_count += len(spec.candidate_entries)
 
         for metric_name in METRIC_NAMES:
-            baseline_values = baseline_samples[metric_name]
-            candidate_values = candidate_samples[metric_name]
-            overall_samples[metric_name]["baseline"].extend(baseline_values)
-            overall_samples[metric_name]["candidate"].extend(candidate_values)
+            within_reference_values = class_samples[WITHIN_REFERENCE_GROUP][metric_name]
+            within_comparison_values = class_samples[WITHIN_COMPARISON_GROUP][metric_name]
+            between_group_values = class_samples[BETWEEN_GROUPS][metric_name]
+            overall_samples[WITHIN_REFERENCE_GROUP][metric_name].extend(
+                within_reference_values
+            )
+            overall_samples[WITHIN_COMPARISON_GROUP][metric_name].extend(
+                within_comparison_values
+            )
+            overall_samples[BETWEEN_GROUPS][metric_name].extend(between_group_values)
             per_class_results.append(
                 _build_result_entry(
                     "class",
                     spec.class_key,
                     metric_name,
-                    baseline_values,
-                    candidate_values,
+                    within_reference_values,
+                    within_comparison_values,
+                    between_group_values,
                     round_precision,
                     len(spec.reference_entries),
                     len(spec.candidate_entries),
+                    include_legacy_fields=include_legacy_fields,
                 )
             )
 
@@ -461,11 +566,13 @@ def run_distribution_comparison(
             "overall",
             None,
             metric_name,
-            overall_samples[metric_name]["baseline"],
-            overall_samples[metric_name]["candidate"],
+            overall_samples[WITHIN_REFERENCE_GROUP][metric_name],
+            overall_samples[WITHIN_COMPARISON_GROUP][metric_name],
+            overall_samples[BETWEEN_GROUPS][metric_name],
             round_precision,
             total_reference_count,
             total_candidate_count,
+            include_legacy_fields=include_legacy_fields,
         )
         for metric_name in METRIC_NAMES
     ]
@@ -474,6 +581,22 @@ def run_distribution_comparison(
         "metadata": {
             "comparisonMode": DISTRIBUTION_MODE,
             "groupBy": group_by,
+            "referenceGroupName": reference_group_name,
+            "comparisonGroupName": comparison_group_name,
+            "comparisonGroups": {
+                WITHIN_REFERENCE_GROUP: {
+                    "description": "Pairwise distances among samples in the reference group.",
+                    "groupName": reference_group_name,
+                },
+                WITHIN_COMPARISON_GROUP: {
+                    "description": "Pairwise distances among samples in the comparison group.",
+                    "groupName": comparison_group_name,
+                },
+                BETWEEN_GROUPS: {
+                    "description": "Distances from reference-group samples to comparison-group samples.",
+                    "groupNames": [reference_group_name, comparison_group_name],
+                },
+            },
             "validClassCount": len(valid_classes),
             "skippedClasses": skipped_classes,
             "invalidClasses": invalid_classes,
@@ -496,7 +619,55 @@ def run_distribution_comparison(
     }
 
 
-def format_distribution_rows_csv(results: Dict[str, Sequence[Dict[str, object]]]) -> str:
+def _append_group_stat_columns(columns: List[str], prefix: str):
+    for stat_name in SUMMARY_STAT_NAMES:
+        if stat_name == "n":
+            continue
+        columns.append(f"{prefix}{stat_name[:1].upper()}{stat_name[1:]}")
+
+
+def _add_group_stats_to_row(
+    flat_row: Dict[str, object],
+    prefix: str,
+    stats_values: Dict[str, object],
+):
+    for stat_name in SUMMARY_STAT_NAMES:
+        if stat_name == "n":
+            continue
+        flat_row[f"{prefix}{stat_name[:1].upper()}{stat_name[1:]}"] = stats_values.get(
+            stat_name
+        )
+
+
+def _generic_distribution_columns() -> List[str]:
+    columns: List[str] = [
+        "scope",
+        "classKey",
+        "gestureMetric",
+        "referenceGroupCount",
+        "comparisonGroupCount",
+        "withinReferenceSampleCount",
+        "withinReferenceFiniteSampleCount",
+        "withinComparisonSampleCount",
+        "withinComparisonFiniteSampleCount",
+        "betweenGroupsSampleCount",
+        "betweenGroupsFiniteSampleCount",
+    ]
+    _append_group_stat_columns(columns, WITHIN_REFERENCE_GROUP)
+    _append_group_stat_columns(columns, WITHIN_COMPARISON_GROUP)
+    _append_group_stat_columns(columns, BETWEEN_GROUPS)
+    columns.extend(
+        [
+            "withinComparisonToReferenceMeanRatio",
+            "withinComparisonToReferenceMdnRatio",
+            "withinComparisonToReferenceSdRatio",
+            *DISTRIBUTION_METRIC_NAMES,
+        ]
+    )
+    return columns
+
+
+def _legacy_distribution_columns() -> List[str]:
     columns: List[str] = [
         "scope",
         "classKey",
@@ -507,81 +678,72 @@ def format_distribution_rows_csv(results: Dict[str, Sequence[Dict[str, object]]]
         "baselineFiniteSampleCount",
         "candidateSampleCount",
         "candidateFiniteSampleCount",
-        "baselineMean",
-        "baselineMdn",
-        "baselineSd",
-        "baselineVariance",
-        "baselineMin",
-        "baselineMax",
-        "baselineQ05",
-        "baselineQ25",
-        "baselineQ50",
-        "baselineQ75",
-        "baselineQ95",
-        "baselineSkewness",
-        "baselineKurtosis",
-        "baselineNormalityPValue",
-        "candidateMean",
-        "candidateMdn",
-        "candidateSd",
-        "candidateVariance",
-        "candidateMin",
-        "candidateMax",
-        "candidateQ05",
-        "candidateQ25",
-        "candidateQ50",
-        "candidateQ75",
-        "candidateQ95",
-        "candidateSkewness",
-        "candidateKurtosis",
-        "candidateNormalityPValue",
-        *DISTRIBUTION_METRIC_NAMES,
     ]
+    _append_group_stat_columns(columns, "baseline")
+    _append_group_stat_columns(columns, "candidate")
+    columns.extend(DISTRIBUTION_METRIC_NAMES)
+    return columns
+
+
+def format_distribution_rows_csv(
+    results: Dict[str, Sequence[Dict[str, object]]],
+    legacy_column_names: bool = False,
+) -> str:
+    columns = (
+        _legacy_distribution_columns()
+        if legacy_column_names
+        else _generic_distribution_columns()
+    )
     lines = [",".join(columns)]
 
     for row in list(results.get("perClass", [])) + list(results.get("overall", [])):
-        baseline_stats = row.get("baselineStats", {})
-        candidate_stats = row.get("candidateStats", {})
+        within_reference_stats = row.get("withinReferenceStats", {})
+        within_comparison_stats = row.get("withinComparisonStats", {})
+        between_group_stats = row.get("betweenGroupsStats", {})
+        ratios = row.get("withinComparisonToReferenceRatios", {})
         distribution_metrics = row.get("distributionMetrics", {})
-        flat_row = {
-            "scope": row.get("scope"),
-            "classKey": row.get("classKey"),
-            "gestureMetric": row.get("gestureMetric"),
-            "referenceCount": row.get("referenceCount"),
-            "candidateCount": row.get("candidateCount"),
-            "baselineSampleCount": row.get("baselineSampleCount"),
-            "baselineFiniteSampleCount": baseline_stats.get("n"),
-            "candidateSampleCount": row.get("candidateSampleCount"),
-            "candidateFiniteSampleCount": candidate_stats.get("n"),
-            "baselineMean": baseline_stats.get("mean"),
-            "baselineMdn": baseline_stats.get("mdn"),
-            "baselineSd": baseline_stats.get("sd"),
-            "baselineVariance": baseline_stats.get("variance"),
-            "baselineMin": baseline_stats.get("min"),
-            "baselineMax": baseline_stats.get("max"),
-            "baselineQ05": baseline_stats.get("q05"),
-            "baselineQ25": baseline_stats.get("q25"),
-            "baselineQ50": baseline_stats.get("q50"),
-            "baselineQ75": baseline_stats.get("q75"),
-            "baselineQ95": baseline_stats.get("q95"),
-            "baselineSkewness": baseline_stats.get("skewness"),
-            "baselineKurtosis": baseline_stats.get("kurtosis"),
-            "baselineNormalityPValue": baseline_stats.get("normalityPValue"),
-            "candidateMean": candidate_stats.get("mean"),
-            "candidateMdn": candidate_stats.get("mdn"),
-            "candidateSd": candidate_stats.get("sd"),
-            "candidateVariance": candidate_stats.get("variance"),
-            "candidateMin": candidate_stats.get("min"),
-            "candidateMax": candidate_stats.get("max"),
-            "candidateQ05": candidate_stats.get("q05"),
-            "candidateQ25": candidate_stats.get("q25"),
-            "candidateQ50": candidate_stats.get("q50"),
-            "candidateQ75": candidate_stats.get("q75"),
-            "candidateQ95": candidate_stats.get("q95"),
-            "candidateSkewness": candidate_stats.get("skewness"),
-            "candidateKurtosis": candidate_stats.get("kurtosis"),
-            "candidateNormalityPValue": candidate_stats.get("normalityPValue"),
-        }
+        if legacy_column_names:
+            flat_row = {
+                "scope": row.get("scope"),
+                "classKey": row.get("classKey"),
+                "gestureMetric": row.get("gestureMetric"),
+                "referenceCount": row.get("referenceGroupCount"),
+                "candidateCount": row.get("comparisonGroupCount"),
+                "baselineSampleCount": row.get("withinReferenceSampleCount"),
+                "baselineFiniteSampleCount": within_reference_stats.get("n"),
+                "candidateSampleCount": row.get("betweenGroupsSampleCount"),
+                "candidateFiniteSampleCount": between_group_stats.get("n"),
+            }
+            _add_group_stats_to_row(flat_row, "baseline", within_reference_stats)
+            _add_group_stats_to_row(flat_row, "candidate", between_group_stats)
+        else:
+            flat_row = {
+                "scope": row.get("scope"),
+                "classKey": row.get("classKey"),
+                "gestureMetric": row.get("gestureMetric"),
+                "referenceGroupCount": row.get("referenceGroupCount"),
+                "comparisonGroupCount": row.get("comparisonGroupCount"),
+                "withinReferenceSampleCount": row.get("withinReferenceSampleCount"),
+                "withinReferenceFiniteSampleCount": within_reference_stats.get("n"),
+                "withinComparisonSampleCount": row.get("withinComparisonSampleCount"),
+                "withinComparisonFiniteSampleCount": within_comparison_stats.get("n"),
+                "betweenGroupsSampleCount": row.get("betweenGroupsSampleCount"),
+                "betweenGroupsFiniteSampleCount": between_group_stats.get("n"),
+                "withinComparisonToReferenceMeanRatio": ratios.get("mean"),
+                "withinComparisonToReferenceMdnRatio": ratios.get("mdn"),
+                "withinComparisonToReferenceSdRatio": ratios.get("sd"),
+            }
+            _add_group_stats_to_row(
+                flat_row,
+                WITHIN_REFERENCE_GROUP,
+                within_reference_stats,
+            )
+            _add_group_stats_to_row(
+                flat_row,
+                WITHIN_COMPARISON_GROUP,
+                within_comparison_stats,
+            )
+            _add_group_stats_to_row(flat_row, BETWEEN_GROUPS, between_group_stats)
         flat_row.update(distribution_metrics)
 
         lines.append(",".join(csv_escape(flat_row.get(column, "")) for column in columns))

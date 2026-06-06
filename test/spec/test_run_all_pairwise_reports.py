@@ -27,7 +27,7 @@ def _read_csv(path: Path):
     return list(csv.DictReader(path.read_text(encoding="utf-8").splitlines()))
 
 
-def test_run_all_pairwise_reports_writes_lightweight_human_baseline(tmp_path):
+def test_run_all_pairwise_reports_writes_generic_distribution_summary(tmp_path):
     datasets_root = tmp_path / "datasets"
     output_dir = tmp_path / "report"
 
@@ -42,6 +42,10 @@ def test_run_all_pairwise_reports_writes_lightweight_human_baseline(tmp_path):
     _write_csv(
         datasets_root / "generated" / "1dollar" / "syntTO" / "g01-arrow-fast-t01.csv",
         2,
+    )
+    _write_csv(
+        datasets_root / "generated" / "1dollar" / "syntTO" / "g02-arrow-fast-t02.csv",
+        3,
     )
 
     assert (
@@ -75,7 +79,7 @@ def test_run_all_pairwise_reports_writes_lightweight_human_baseline(tmp_path):
     run_manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
     run_metadata = json.loads((output_dir / "run.json").read_text(encoding="utf-8"))
 
-    assert len(pairwise_rows) == 1
+    assert len(pairwise_rows) == 2
     assert pairwise_rows[0]["mode"] == "reference-summary"
     assert len(baseline_rows) == 2
     assert {row["mode"] for row in baseline_rows} == {"human-summary-baseline"}
@@ -87,13 +91,19 @@ def test_run_all_pairwise_reports_writes_lightweight_human_baseline(tmp_path):
     assert len(baseline_stats_rows) > 0
     assert len(distribution_rows) == len(baseline_stats_rows)
     assert distribution_rows[0]["wassersteinDistance"] != ""
-    assert distribution_rows[0]["baselineMean"] == baseline_stats_rows[0]["mean"]
+    assert distribution_rows[0]["withinReferenceMean"] == baseline_stats_rows[0]["mean"]
+    assert "baselineMean" not in distribution_rows[0]
+    assert distribution_rows[0]["withinComparisonN"] == "1"
+    assert distribution_rows[0]["withinComparisonToReferenceMeanRatio"] != ""
+    assert distribution_rows[0]["betweenGroupsMean"] != ""
     assert len(run_distribution_rows) == len(distribution_rows)
     assert top_distribution_rows == run_distribution_rows
-    assert run_manifest["pairwiseRows"] == 1
+    assert run_manifest["pairwiseRows"] == 2
     assert run_manifest["baselineRows"] == 2
+    assert run_manifest["withinComparisonRows"] == 1
     assert run_manifest["distributionRows"] == len(distribution_rows)
     assert run_manifest["classes"][0]["baselineMode"] == "human-summary-baseline"
+    assert run_manifest["classes"][0]["withinComparisonRows"] == 1
     assert run_manifest["classes"][0]["distributionRows"] == len(distribution_rows)
     assert run_metadata["experiment"] == "run-all-pairwise-reports"
     assert run_metadata["runtimeArgs"]["verbose"] == 2

@@ -50,8 +50,8 @@ def test_grouping_helpers_and_pair_generation():
     cand_a = Distribution.GestureEntry("c1", "c1", "arrow", ["c1"])
     cand_b = Distribution.GestureEntry("c2", "c2", "arrow", ["c2"])
 
-    assert len(Distribution._unordered_reference_pairs([ref_a, ref_b, ref_c])) == 3
-    assert Distribution._candidate_reference_pairs([ref_a, ref_b], [cand_a, cand_b]) == [
+    assert len(Distribution._unordered_pairs([ref_a, ref_b, ref_c])) == 3
+    assert Distribution._between_group_pairs([ref_a, ref_b], [cand_a, cand_b]) == [
         (ref_a, cand_a),
         (ref_a, cand_b),
         (ref_b, cand_a),
@@ -83,23 +83,23 @@ def test_discover_class_comparisons_reports_valid_invalid_and_skipped(tmp_path):
     assert skipped_classes == [
         {
             "classKey": "square",
-            "reason": "missingCandidate",
-            "referenceCount": 2,
-            "candidateCount": 0,
+            "reason": "missingComparison",
+            "referenceGroupCount": 2,
+            "comparisonGroupCount": 0,
         },
         {
             "classKey": "triangle",
             "reason": "missingReference",
-            "referenceCount": 0,
-            "candidateCount": 1,
+            "referenceGroupCount": 0,
+            "comparisonGroupCount": 1,
         },
     ]
     assert invalid_classes == [
         {
             "classKey": "circle",
             "reason": "needAtLeastTwoReferenceSamples",
-            "referenceCount": 1,
-            "candidateCount": 1,
+            "referenceGroupCount": 1,
+            "comparisonGroupCount": 1,
         }
     ]
 
@@ -115,11 +115,12 @@ def test_metric_samples_for_class_use_reference_only_for_auto_rate_and_generate_
         ),
         candidate_entries=(
             Distribution.GestureEntry("c1", "c1", "arrow", ["cand-1"]),
+            Distribution.GestureEntry("c2", "c2", "arrow", ["cand-2"]),
         ),
     )
 
     captured_point_sets = []
-    metric_values = iter([1.0, 3.0, 5.0, 7.0])
+    metric_values = iter([1.0, 3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0])
 
     def fake_sampling_rate_for_sets(point_sets, rate):
         captured_point_sets.append(list(point_sets))
@@ -132,8 +133,7 @@ def test_metric_samples_for_class_use_reference_only_for_auto_rate_and_generate_
     monkeypatch.setattr(Distribution, "compute_pair_metrics_from_points", fake_compute_pair_metrics)
 
     (
-        baseline_samples,
-        candidate_samples,
+        samples,
         effective_rate,
         selected_dtw_window,
     ) = Distribution._metric_samples_for_class(
@@ -147,8 +147,9 @@ def test_metric_samples_for_class_use_reference_only_for_auto_rate_and_generate_
     assert effective_rate == 9
     assert selected_dtw_window is None
     assert captured_point_sets == [[["ref-1"], ["ref-2"]]]
-    assert baseline_samples["shapeError"] == [2.0]
-    assert candidate_samples["shapeError"] == [5.0, 7.0]
+    assert samples[Distribution.WITHIN_REFERENCE_GROUP]["shapeError"] == [2.0]
+    assert samples[Distribution.WITHIN_COMPARISON_GROUP]["shapeError"] == [6.0]
+    assert samples[Distribution.BETWEEN_GROUPS]["shapeError"] == [9.0, 11.0, 13.0, 15.0]
 
 
 def test_run_distribution_comparison_filename_grouping_and_no_valid_classes(tmp_path):
@@ -175,6 +176,7 @@ def test_run_distribution_comparison_outputs_per_class_and_overall(tmp_path):
     _write_csv(reference_dir / "s07-square-02.csv", _sample_rows(6))
 
     _write_csv(candidate_dir / "g01-arrow-01.csv", _sample_rows(7))
+    _write_csv(candidate_dir / "g05-arrow-02.csv", _sample_rows(11))
     _write_csv(candidate_dir / "g02-circle-01.csv", _sample_rows(8))
     _write_csv(candidate_dir / "g03-square-01.csv", _sample_rows(9))
     _write_csv(candidate_dir / "g04-triangle-01.csv", _sample_rows(10))
@@ -187,6 +189,12 @@ def test_run_distribution_comparison_outputs_per_class_and_overall(tmp_path):
 
     assert payload["metadata"]["comparisonMode"] == "distribution"
     assert payload["metadata"]["groupBy"] == "filename-label"
+    assert payload["metadata"]["comparisonGroups"][Distribution.WITHIN_REFERENCE_GROUP][
+        "groupName"
+    ] == "reference"
+    assert payload["metadata"]["comparisonGroups"][Distribution.WITHIN_COMPARISON_GROUP][
+        "groupName"
+    ] == "comparison"
     assert payload["metadata"]["validClassCount"] == 3
     assert payload["metadata"]["dtwWindow"] is None
     assert payload["metadata"]["exactDtw"] is False
@@ -194,8 +202,8 @@ def test_run_distribution_comparison_outputs_per_class_and_overall(tmp_path):
         {
             "classKey": "triangle",
             "reason": "missingReference",
-            "referenceCount": 0,
-            "candidateCount": 1,
+            "referenceGroupCount": 0,
+            "comparisonGroupCount": 1,
         }
     ]
     assert payload["metadata"]["invalidClasses"] == []
@@ -207,23 +215,31 @@ def test_run_distribution_comparison_outputs_per_class_and_overall(tmp_path):
 
     shape_rows = [row for row in per_class_results if row["gestureMetric"] == "shapeError"]
     sample_counts = {
-        row["classKey"]: (row["baselineSampleCount"], row["candidateSampleCount"])
+        row["classKey"]: (
+            row["withinReferenceSampleCount"],
+            row["withinComparisonSampleCount"],
+            row["betweenGroupsSampleCount"],
+        )
         for row in shape_rows
     }
     assert sample_counts == {
-        "arrow": (1, 2),
-        "circle": (3, 3),
-        "square": (1, 2),
+        "arrow": (1, 1, 4),
+        "circle": (3, 0, 3),
+        "square": (1, 0, 2),
     }
     assert set(shape_rows[0]["distributionMetrics"].keys()) == set(DISTRIBUTION_METRIC_NAMES)
+    assert "baselineStats" not in shape_rows[0]
+    assert "candidateStats" not in shape_rows[0]
 
     overall_shape = next(row for row in overall_results if row["gestureMetric"] == "shapeError")
     assert overall_shape["scope"] == "overall"
     assert overall_shape["classKey"] is None
-    assert overall_shape["baselineSampleCount"] == 5
-    assert overall_shape["candidateSampleCount"] == 7
-    assert overall_shape["baselineStats"]["n"] == 5
-    assert overall_shape["candidateStats"]["n"] == 7
+    assert overall_shape["withinReferenceSampleCount"] == 5
+    assert overall_shape["withinComparisonSampleCount"] == 1
+    assert overall_shape["betweenGroupsSampleCount"] == 9
+    assert overall_shape["withinReferenceStats"]["n"] == 5
+    assert overall_shape["withinComparisonStats"]["n"] == 1
+    assert overall_shape["betweenGroupsStats"]["n"] == 9
 
 
 def test_run_distribution_comparison_keeps_stroke_error_stats_coherent(tmp_path):
@@ -247,13 +263,13 @@ def test_run_distribution_comparison_keeps_stroke_error_stats_coherent(tmp_path)
         for row in payload["results"]["overall"]
         if row["gestureMetric"] == "strokeError"
     )
-    candidate_stats = stroke_row["candidateStats"]
-    assert candidate_stats["min"] <= candidate_stats["mean"] <= candidate_stats["max"]
-    assert candidate_stats["min"] <= candidate_stats["mdn"] <= candidate_stats["max"]
-    assert candidate_stats["mean"] == 0.5
-    assert candidate_stats["mdn"] == 0.5
-    assert candidate_stats["min"] == 0.0
-    assert candidate_stats["max"] == 1.0
+    between_group_stats = stroke_row["betweenGroupsStats"]
+    assert between_group_stats["min"] <= between_group_stats["mean"] <= between_group_stats["max"]
+    assert between_group_stats["min"] <= between_group_stats["mdn"] <= between_group_stats["max"]
+    assert between_group_stats["mean"] == 0.5
+    assert between_group_stats["mdn"] == 0.5
+    assert between_group_stats["min"] == 0.0
+    assert between_group_stats["max"] == 1.0
 
 
 def test_run_distribution_comparison_parent_dir_grouping_and_validation(tmp_path):
@@ -283,8 +299,9 @@ def test_run_distribution_comparison_parent_dir_grouping_and_validation(tmp_path
     assert payload["metadata"]["popular"] is True
     assert payload["metadata"]["dtwWindow"] == 4
     first_row = payload["results"]["perClass"][0]
-    assert first_row["referenceCount"] == 2
-    assert first_row["candidateCount"] == 1
+    assert first_row["referenceGroupCount"] == 2
+    assert first_row["comparisonGroupCount"] == 1
+    assert first_row["withinComparisonSampleCount"] == 0
 
     with pytest.raises(ValueError, match="Invalid group-by mode"):
         Distribution.run_distribution_comparison(
@@ -386,7 +403,7 @@ def test_discover_class_comparisons_require_reference_and_candidate_csvs(tmp_pat
     _write_csv(reference_dir / "arrow" / "r1.csv", _sample_rows(0))
     _write_csv(reference_dir / "arrow" / "r2.csv", _sample_rows(1))
 
-    with pytest.raises(ValueError, match="No candidate CSV files found"):
+    with pytest.raises(ValueError, match="No comparison CSV files found"):
         Distribution.discover_class_comparisons(
             str(reference_dir),
             str(candidate_dir),
@@ -401,12 +418,37 @@ def test_format_distribution_rows_csv_with_escaping_and_overall_row():
                 "scope": "class",
                 "classKey": "arrow,fast",
                 "gestureMetric": "shapeError",
-                "referenceCount": 2,
-                "candidateCount": 1,
-                "baselineSampleCount": 1,
-                "candidateSampleCount": 2,
-                "baselineStats": {"mean": 1.0, "mdn": 1.0, "sd": 0.0, "min": 1.0, "max": 1.0},
-                "candidateStats": {"mean": 2.0, "mdn": 2.0, "sd": 0.0, "min": 2.0, "max": 2.0},
+                "referenceGroupCount": 2,
+                "comparisonGroupCount": 2,
+                "withinReferenceSampleCount": 1,
+                "withinComparisonSampleCount": 1,
+                "betweenGroupsSampleCount": 4,
+                "withinReferenceStats": {
+                    "mean": 1.0,
+                    "mdn": 1.0,
+                    "sd": 0.5,
+                    "min": 1.0,
+                    "max": 1.0,
+                },
+                "withinComparisonStats": {
+                    "mean": 3.0,
+                    "mdn": 3.0,
+                    "sd": 1.5,
+                    "min": 3.0,
+                    "max": 3.0,
+                },
+                "betweenGroupsStats": {
+                    "mean": 2.0,
+                    "mdn": 2.0,
+                    "sd": 0.0,
+                    "min": 2.0,
+                    "max": 2.0,
+                },
+                "withinComparisonToReferenceRatios": {
+                    "mean": 3.0,
+                    "mdn": 3.0,
+                    "sd": 3.0,
+                },
                 "distributionMetrics": {
                     "wassersteinDistance": 1.0,
                     "energyDistance": 1.0,
@@ -420,12 +462,19 @@ def test_format_distribution_rows_csv_with_escaping_and_overall_row():
                 "scope": "overall",
                 "classKey": None,
                 "gestureMetric": "shapeError",
-                "referenceCount": 2,
-                "candidateCount": 1,
-                "baselineSampleCount": 1,
-                "candidateSampleCount": 2,
-                "baselineStats": {"mean": 1.0, "mdn": 1.0, "sd": 0.0, "min": 1.0, "max": 1.0},
-                "candidateStats": {"mean": 2.0, "mdn": 2.0, "sd": 0.0, "min": 2.0, "max": 2.0},
+                "referenceGroupCount": 2,
+                "comparisonGroupCount": 2,
+                "withinReferenceSampleCount": 1,
+                "withinComparisonSampleCount": 1,
+                "betweenGroupsSampleCount": 4,
+                "withinReferenceStats": {"mean": 1.0, "mdn": 1.0, "sd": 0.5},
+                "withinComparisonStats": {"mean": 3.0, "mdn": 3.0, "sd": 1.5},
+                "betweenGroupsStats": {"mean": 2.0, "mdn": 2.0, "sd": 0.0},
+                "withinComparisonToReferenceRatios": {
+                    "mean": 3.0,
+                    "mdn": 3.0,
+                    "sd": 3.0,
+                },
                 "distributionMetrics": {
                     "wassersteinDistance": 1.0,
                     "energyDistance": 1.0,
@@ -440,17 +489,33 @@ def test_format_distribution_rows_csv_with_escaping_and_overall_row():
     lines = output.splitlines()
     columns = lines[0].split(",")
     assert columns[:3] == ["scope", "classKey", "gestureMetric"]
-    assert "baselineFiniteSampleCount" in columns
-    assert "candidateFiniteSampleCount" in columns
-    assert "baselineVariance" in columns
-    assert "baselineQ95" in columns
-    assert "baselineSkewness" in columns
-    assert "baselineKurtosis" in columns
-    assert "baselineNormalityPValue" in columns
-    assert "candidateVariance" in columns
-    assert "candidateQ95" in columns
-    assert "candidateSkewness" in columns
-    assert "candidateKurtosis" in columns
-    assert "candidateNormalityPValue" in columns
+    assert "referenceGroupCount" in columns
+    assert "comparisonGroupCount" in columns
+    assert "withinReferenceFiniteSampleCount" in columns
+    assert "withinComparisonFiniteSampleCount" in columns
+    assert "betweenGroupsFiniteSampleCount" in columns
+    assert "withinReferenceVariance" in columns
+    assert "withinReferenceQ95" in columns
+    assert "withinReferenceSkewness" in columns
+    assert "withinReferenceKurtosis" in columns
+    assert "withinReferenceNormalityPValue" in columns
+    assert "withinComparisonVariance" in columns
+    assert "withinComparisonQ95" in columns
+    assert "betweenGroupsVariance" in columns
+    assert "betweenGroupsQ95" in columns
+    assert "withinComparisonToReferenceMeanRatio" in columns
+    assert "baselineMean" not in columns
+    assert "candidateMean" not in columns
     assert '"arrow,fast"' in lines[1]
     assert lines[2].startswith("overall,")
+
+    legacy_output = Distribution.format_distribution_rows_csv(
+        results,
+        legacy_column_names=True,
+    )
+    legacy_columns = legacy_output.splitlines()[0].split(",")
+    assert "baselineFiniteSampleCount" in legacy_columns
+    assert "candidateFiniteSampleCount" in legacy_columns
+    assert "baselineMean" in legacy_columns
+    assert "candidateMean" in legacy_columns
+    assert "withinReferenceMean" not in legacy_columns
