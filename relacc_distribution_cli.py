@@ -3,7 +3,11 @@ import argparse
 import json
 
 from relacc.gestures.ptaligntype import PtAlignType
-from relacc.pipeline._common import output_format
+from relacc.pipeline._common import (
+    default_raw_output_path,
+    output_format,
+    write_jsonl_rows,
+)
 from relacc.pipeline.distribution import (
     GROUP_BY_FILENAME_LABEL,
     GROUP_BY_MODES,
@@ -44,6 +48,7 @@ def build_parser():
     parser.add_argument("-p", "--popular", action="store_true")
     parser.add_argument("-f", "--format")
     parser.add_argument("-o", "--output")
+    parser.add_argument("--raw-output")
     parser.add_argument("--round")
     parser.add_argument("--exact-dtw", action="store_true")
     parser.add_argument("--dtw-window")
@@ -139,6 +144,16 @@ def _run_experiment(opt, paths=None, metadata=None):
         )
 
     _display_result(result, opt.output, debug)
+    raw_output = opt.raw_output or default_raw_output_path(opt.output)
+    if raw_output:
+        write_jsonl_rows(
+            raw_output,
+            [
+                *payload["rawMetricOutputs"],
+                *payload["rawDistributionOutputs"],
+            ],
+        )
+        debug.fmt("Raw distribution outputs were saved in %s", raw_output)
     append_run_log(paths or {}, "Output format: %s" % fmt)
     return 0
 

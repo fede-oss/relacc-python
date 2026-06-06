@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import math
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
@@ -166,6 +168,43 @@ def format_csv_rows(rows: Sequence[Dict[str, object]], columns: Sequence[str]) -
     for row in rows:
         lines.append(",".join(csv_escape(row.get(column, "")) for column in columns))
     return "\n".join(lines)
+
+
+def jsonl_safe(value):
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: jsonl_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [jsonl_safe(item) for item in value]
+    return value
+
+
+def format_jsonl_rows(rows: Sequence[Dict[str, object]]) -> str:
+    return "\n".join(
+        json.dumps(jsonl_safe(row), sort_keys=True, allow_nan=False)
+        for row in rows
+    )
+
+
+def default_raw_output_path(output: str | None, suffix: str = "raw-metrics.jsonl") -> str | None:
+    if output is None:
+        return None
+
+    raw_suffix = "." + suffix.lstrip(".")
+    path = Path(output)
+    if path.suffix:
+        return str(path.with_suffix(path.suffix + raw_suffix))
+    return str(path.with_suffix(raw_suffix))
+
+
+def write_jsonl_rows(path: str | Path, rows: Sequence[Dict[str, object]]) -> None:
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    text = format_jsonl_rows(rows)
+    if text:
+        text += "\n"
+    output_path.write_text(text, encoding="utf-8")
 
 
 def compute_pair_metrics_from_points(

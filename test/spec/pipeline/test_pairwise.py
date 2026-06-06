@@ -259,6 +259,10 @@ def test_compute_compare_and_run_pairwise(tmp_path):
     assert payload["pairs"][0]["mode"] == "direct"
     assert payload["pairs"][0]["referenceCount"] == 1
     assert payload["pairs"][0]["dtwWindow"] is None
+    assert len(payload["rawMetricOutputs"]) == len(Pairwise.METRIC_NAMES)
+    assert payload["rawMetricOutputs"][0]["recordType"] == "rawMetricOutput"
+    assert payload["rawMetricOutputs"][0]["comparisonMode"] == "direct"
+    assert payload["rawMetricOutputs"][0]["pairKey"] == "s1"
 
 
 def test_run_pairwise_direct_no_strict_skips_invalid_pairs(tmp_path):
@@ -330,6 +334,8 @@ def test_run_pairwise_summary_mode_compares_all_candidates(tmp_path):
     assert payload["metadata"]["missingInReference"] == []
     assert all(row["mode"] == "summary" for row in payload["pairs"])
     assert all(row["referenceCount"] == 2 for row in payload["pairs"])
+    assert len(payload["rawMetricOutputs"]) == 2 * len(Pairwise.METRIC_NAMES)
+    assert {row["comparisonMode"] for row in payload["rawMetricOutputs"]} == {"summary"}
 
 
 def test_run_pairwise_summary_mode_auto_rate_uses_reference_only(tmp_path):

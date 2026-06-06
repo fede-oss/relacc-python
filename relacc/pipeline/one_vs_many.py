@@ -133,6 +133,7 @@ def run_one_vs_many_comparison(
 
     metric_values = {name: [] for name in selected_metric_names}
     rows = []
+    raw_metric_outputs = []
     for entry, gesture in zip(entries, gestures):
         raw_values = compute_metrics(
             gesture,
@@ -143,6 +144,25 @@ def run_one_vs_many_comparison(
         )
         for name, value in raw_values.items():
             metric_values[name].append(value)
+            raw_metric_outputs.append(
+                {
+                    "schemaVersion": 1,
+                    "recordType": "rawMetricOutput",
+                    "comparisonMode": ONE_VS_MANY_MODE,
+                    "sampleKey": entry["key"],
+                    "inputFile": entry["path"],
+                    "label": selected_label,
+                    "metric": name,
+                    "value": value,
+                    "rate": effective_rate,
+                    "requestedRate": rate,
+                    "alignment": alignment_type,
+                    "summary": summary_shape,
+                    "popular": bool(popular_shape),
+                    "dtwWindow": selected_dtw_window,
+                    "exactDtw": bool(exact_dtw),
+                }
+            )
         values = (
             raw_values
             if round_precision is None
@@ -188,6 +208,7 @@ def run_one_vs_many_comparison(
         },
         "samples": rows,
         "results": aggregate_stats if stats else rows,
+        "rawMetricOutputs": raw_metric_outputs,
     }
 
 

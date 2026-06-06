@@ -77,6 +77,7 @@ def test_run_all_pairwise_reports_writes_generic_distribution_summary(tmp_path):
     run_distribution_rows = _read_csv(run_dir / "distribution.csv")
     top_distribution_rows = _read_csv(output_dir / "distribution.csv")
     run_manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
     run_metadata = json.loads((output_dir / "run.json").read_text(encoding="utf-8"))
 
     assert len(pairwise_rows) == 2
@@ -112,6 +113,59 @@ def test_run_all_pairwise_reports_writes_generic_distribution_summary(tmp_path):
         encoding="utf-8"
     )
     assert "planned 1 runs" in (output_dir / "stdout.log").read_text(encoding="utf-8")
+
+    combined_dir = output_dir / "combined"
+    combined_pairwise_rows = _read_csv(combined_dir / "pairwise.csv")
+    combined_stats_rows = _read_csv(combined_dir / "stats.csv")
+    combined_baseline_rows = _read_csv(combined_dir / "baseline.csv")
+    combined_within_comparison_rows = _read_csv(combined_dir / "within_comparison.csv")
+    combined_distribution_rows = _read_csv(combined_dir / "distribution.csv")
+    aggregate_rows = _read_csv(combined_dir / "aggregate_summaries.csv")
+    report = json.loads((combined_dir / "report.json").read_text(encoding="utf-8"))
+    raw_metric_rows = [
+        json.loads(line)
+        for line in (combined_dir / "raw_metrics.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    raw_distribution_rows = [
+        json.loads(line)
+        for line in (combined_dir / "raw_distributions.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+
+    assert combined_pairwise_rows == _read_csv(run_dir / "pairwise.csv")
+    assert combined_stats_rows == _read_csv(run_dir / "stats.csv")
+    assert combined_baseline_rows == baseline_rows
+    assert combined_within_comparison_rows == _read_csv(
+        run_dir / "within_comparison.csv"
+    )
+    assert combined_distribution_rows == top_distribution_rows
+    assert {
+        "comparison-to-reference-summary",
+        "human-baseline",
+        "within-comparison",
+    } <= {row["recordSet"] for row in aggregate_rows}
+    assert {"overall", "source", "dataset", "source-dataset", "run"} <= {
+        row["scope"] for row in aggregate_rows
+    }
+    assert len(raw_metric_rows) == 5 * len(PairwiseReports.METRIC_NAMES)
+    assert {row["recordType"] for row in raw_metric_rows} == {"rawMetricOutput"}
+    assert {row["recordSet"] for row in raw_metric_rows} == {
+        "comparison-to-reference-summary",
+        "human-baseline",
+        "within-comparison",
+    }
+    assert len(raw_distribution_rows) == (
+        len(distribution_rows) * len(PairwiseReports.DISTRIBUTION_OUTPUT_VALUE_COLUMNS)
+    )
+    assert report["metadata"]["pairwiseRows"] == 2
+    assert report["metadata"]["withinComparisonRows"] == 1
+    assert report["files"]["withinComparison"] == str(
+        combined_dir / "within_comparison.csv"
+    )
+    assert manifest["combinedOutputs"]["directory"] == str(combined_dir)
 
 
 def test_run_all_summary_validation_rejects_impossible_bounds():

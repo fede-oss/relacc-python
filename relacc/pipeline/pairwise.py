@@ -8,6 +8,7 @@ from relacc.gestures.gesture import Gesture
 from relacc.gestures.ptaligntype import PtAlignType
 from relacc.gestures.summarygesture import SummaryGesture
 from relacc.metrics import METRIC_NAMES, compute_metrics
+from relacc.utils.math import MathUtil
 from ._common import (
     SUMMARY_SHAPES,
     compute_pair_metrics_from_points,
@@ -54,6 +55,15 @@ def _normalize_mode(comparison_mode: str | None):
             "Invalid comparison mode (%s). Supported values: direct, summary." % mode
         )
     return mode
+
+
+def _rounded_metric_values(values: Dict[str, float], round_precision: int | None):
+    if round_precision is None:
+        return values
+    return {
+        name: MathUtil.roundTo(value, round_precision)
+        for name, value in values.items()
+    }
 
 
 def _top_level_filename_key(relative_csv_path: str) -> str:
@@ -183,6 +193,7 @@ def compare_pair(
     metric_names: Sequence[str] | None = None,
     dtw_window: int | None = None,
     exact_dtw: bool = False,
+    return_raw: bool = False,
 ):
     reference_points = _read_points(pair.reference_file)
     candidate_points = _read_points(pair.candidate_file)
@@ -196,7 +207,7 @@ def compare_pair(
     )
 
     selected_metric_names = tuple(metric_names or METRIC_NAMES)
-    metrics = compute_pair_metrics_from_points(
+    raw_metrics = compute_pair_metrics_from_points(
         reference_points,
         candidate_points,
         pair_label,
@@ -204,11 +215,12 @@ def compare_pair(
         alignment_type=alignment_type,
         summary_shape=summary_shape,
         popular_shape=popular_shape,
-        round_precision=round_precision,
+        round_precision=None,
         metric_names=selected_metric_names,
         dtw_window=selected_dtw_window,
         exact_dtw=exact_dtw,
     )
+    metrics = _rounded_metric_values(raw_metrics, round_precision)
 
     row = {
         "pairKey": pair.key,
@@ -224,6 +236,31 @@ def compare_pair(
         "dtwWindow": selected_dtw_window,
     }
     row.update(metrics)
+    raw_metric_outputs = [
+        {
+            "schemaVersion": 1,
+            "recordType": "rawMetricOutput",
+            "comparisonMode": DIRECT_MODE,
+            "pairKey": pair.key,
+            "label": pair_label,
+            "referenceFile": pair.reference_file,
+            "candidateFile": pair.candidate_file,
+            "mode": DIRECT_MODE,
+            "referenceCount": 1,
+            "metric": name,
+            "value": value,
+            "rate": effective_rate,
+            "requestedRate": rate,
+            "alignment": alignment_type,
+            "summary": summary_shape,
+            "popular": bool(popular_shape),
+            "dtwWindow": selected_dtw_window,
+            "exactDtw": bool(exact_dtw),
+        }
+        for name, value in raw_metrics.items()
+    ]
+    if return_raw:
+        return row, raw_metric_outputs
     return row
 
 
@@ -286,17 +323,19 @@ def compare_against_reference_summary(
     selected_metric_names = tuple(metric_names or METRIC_NAMES)
 
     results = []
+    raw_metric_outputs = []
     for candidate_key, candidate_path, candidate_points in candidate_entries:
         pair_key = _pair_key(candidate_key)
         pair_label = label or pair_key
         candidate = Gesture(candidate_points, pair_label, effective_rate)
-        metrics = compute_metrics(
+        raw_metrics = compute_metrics(
             candidate,
             reference_summary,
-            round_precision=round_precision,
+            round_precision=None,
             metric_names=selected_metric_names,
             dtw_window=selected_dtw_window,
         )
+        metrics = _rounded_metric_values(raw_metrics, round_precision)
 
         row = {
             "pairKey": pair_key,
@@ -313,8 +352,31 @@ def compare_against_reference_summary(
         }
         row.update(metrics)
         results.append(row)
+        for metric_name, value in raw_metrics.items():
+            raw_metric_outputs.append(
+                {
+                    "schemaVersion": 1,
+                    "recordType": "rawMetricOutput",
+                    "comparisonMode": SUMMARY_MODE,
+                    "pairKey": pair_key,
+                    "label": pair_label,
+                    "referenceFile": str(reference_root),
+                    "candidateFile": candidate_path,
+                    "mode": SUMMARY_MODE,
+                    "referenceCount": len(reference_entries),
+                    "metric": metric_name,
+                    "value": value,
+                    "rate": effective_rate,
+                    "requestedRate": rate,
+                    "alignment": alignment_type,
+                    "summary": summary_shape,
+                    "popular": bool(popular_shape),
+                    "dtwWindow": selected_dtw_window,
+                    "exactDtw": bool(exact_dtw),
+                }
+            )
 
-    return results, [], [], len(reference_entries)
+    return results, raw_metric_outputs, [], [], len(reference_entries)
 
 
 def run_pairwise_comparison(
@@ -343,23 +405,25 @@ def run_pairwise_comparison(
             strict=strict,
         )
         results = []
+        raw_metric_outputs = []
         skipped_pair_errors = []
         for pair in pairs:
             try:
-                results.append(
-                    compare_pair(
-                        pair,
-                        label=label,
-                        rate=rate,
-                        alignment_type=alignment_type,
-                        summary_shape=summary_shape,
-                        popular_shape=popular_shape,
-                        round_precision=round_precision,
-                        metric_names=selected_metric_names,
-                        dtw_window=dtw_window,
-                        exact_dtw=exact_dtw,
-                    )
+                row, pair_raw_outputs = compare_pair(
+                    pair,
+                    label=label,
+                    rate=rate,
+                    alignment_type=alignment_type,
+                    summary_shape=summary_shape,
+                    popular_shape=popular_shape,
+                    round_precision=round_precision,
+                    metric_names=selected_metric_names,
+                    dtw_window=dtw_window,
+                    exact_dtw=exact_dtw,
+                    return_raw=True,
                 )
+                results.append(row)
+                raw_metric_outputs.extend(pair_raw_outputs)
             except Exception as exc:
                 if strict:
                     raise ValueError(
@@ -375,7 +439,13 @@ def run_pairwise_comparison(
         reference_count = len(results)
     else:
         skipped_pair_errors = []
-        results, missing_in_candidate, missing_in_reference, reference_count = (
+        (
+            results,
+            raw_metric_outputs,
+            missing_in_candidate,
+            missing_in_reference,
+            reference_count,
+        ) = (
             compare_against_reference_summary(
                 reference_input,
                 candidate_input,
@@ -414,6 +484,7 @@ def run_pairwise_comparison(
             "skippedPairErrors": skipped_pair_errors,
         },
         "pairs": results,
+        "rawMetricOutputs": raw_metric_outputs,
     }
 
 

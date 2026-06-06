@@ -27,6 +27,7 @@ from relacc.pipeline._common import (
     normalize_summary_shape,
     read_points,
     sampling_rate_for_sets,
+    write_jsonl_rows,
 )
 from relacc.pipeline.reporting import (
     CLASS_SCHEME_AUTO,
@@ -185,6 +186,52 @@ DISTRIBUTION_COLUMNS = (
     "withinComparisonToReferenceSdRatio",
 )
 
+COMBINED_OUTPUT_DIRNAME = "combined"
+COMBINED_PAIRWISE_FILENAME = "pairwise.csv"
+COMBINED_STATS_FILENAME = "stats.csv"
+COMBINED_BASELINE_FILENAME = "baseline.csv"
+COMBINED_BASELINE_STATS_FILENAME = "baseline_stats.csv"
+COMBINED_WITHIN_COMPARISON_FILENAME = "within_comparison.csv"
+COMBINED_WITHIN_COMPARISON_STATS_FILENAME = "within_comparison_stats.csv"
+COMBINED_DISTRIBUTION_FILENAME = "distribution.csv"
+COMBINED_AGGREGATE_SUMMARIES_FILENAME = "aggregate_summaries.csv"
+COMBINED_RAW_METRICS_FILENAME = "raw_metrics.jsonl"
+COMBINED_RAW_DISTRIBUTIONS_FILENAME = "raw_distributions.jsonl"
+COMBINED_REPORT_FILENAME = "report.json"
+
+AGGREGATE_SUMMARY_COLUMNS = (
+    "recordSet",
+    "scope",
+    "source",
+    "dataset",
+    "variant",
+    "metric",
+    "n",
+    "finiteN",
+    "mean",
+    "mdn",
+    "sd",
+    "min",
+    "max",
+)
+
+DISTRIBUTION_OUTPUT_VALUE_COLUMNS = (
+    "wassersteinDistance",
+    "normalizedWassersteinDistance",
+    "energyDistance",
+    "ksStatistic",
+    "ksPValue",
+    "betweenGroupsMeanDelta",
+    "betweenGroupsMdnDelta",
+    "betweenGroupsSdDelta",
+    "withinComparisonToReferenceMeanDelta",
+    "withinComparisonToReferenceMeanRatio",
+    "withinComparisonToReferenceMdnDelta",
+    "withinComparisonToReferenceMdnRatio",
+    "withinComparisonToReferenceSdDelta",
+    "withinComparisonToReferenceSdRatio",
+)
+
 
 def _int_cast(value):
     if value is None or value == "":
@@ -318,6 +365,60 @@ def _write_csv(path: Path, rows: Sequence[Dict[str, object]], columns: Sequence[
     path.write_text(format_csv_rows(rows, columns), encoding="utf-8")
 
 
+def _rounded_metric_values(values: Dict[str, float], round_precision: int | None):
+    if round_precision is None:
+        return values
+    return {
+        metric_name: MathUtil.roundTo(value, round_precision)
+        for metric_name, value in values.items()
+    }
+
+
+def _raw_metric_outputs_from_values(
+    row: Dict[str, object],
+    raw_values: Dict[str, float],
+    record_set: str,
+) -> List[Dict[str, object]]:
+    base = {
+        "schemaVersion": 1,
+        "recordType": "rawMetricOutput",
+        "recordSet": record_set,
+        "comparisonMode": row.get("mode"),
+        "runId": row.get("runId"),
+        "source": row.get("source"),
+        "dataset": row.get("dataset"),
+        "variant": row.get("variant"),
+        "classKey": row.get("classKey"),
+        "referenceInput": row.get("referenceInput"),
+        "referenceCount": row.get("referenceCount"),
+        "candidateCount": row.get("candidateCount"),
+        "rate": row.get("rate"),
+        "requestedRate": row.get("requestedRate"),
+        "alignment": row.get("alignment"),
+        "summary": row.get("summary"),
+        "popular": row.get("popular"),
+        "dtwWindow": row.get("dtwWindow"),
+        "exactDtw": row.get("exactDtw"),
+    }
+    for optional_key in [
+        "pairKey",
+        "candidateFile",
+        "sampleKey",
+        "sampleFile",
+    ]:
+        if optional_key in row:
+            base[optional_key] = row.get(optional_key)
+
+    return [
+        {
+            **base,
+            "metric": metric_name,
+            "value": value,
+        }
+        for metric_name, value in raw_values.items()
+    ]
+
+
 def _effective_dtw_window(rate: int, requested_window: int | None, exact_dtw: bool):
     if exact_dtw:
         return None
@@ -447,6 +548,124 @@ def _summary_stats(
             )
         )
     return stats_rows
+
+
+def _aggregate_summary_stats(
+    rows: Sequence[Dict[str, object]],
+    record_set: str,
+    scope: str,
+    source_name: str | None,
+    dataset_name: str | None,
+    variant: str | None,
+    round_precision: int | None,
+):
+    stats_rows = []
+    for metric_name in METRIC_NAMES:
+        values = [row.get(metric_name) for row in rows]
+        finite_values = [
+            float(value)
+            for value in values
+            if isinstance(value, (int, float)) and math.isfinite(float(value))
+        ]
+        finite_n = len(finite_values)
+        if finite_n == 0:
+            mean = mdn = sd = minimum = maximum = None
+        else:
+            mean = statistics.fmean(finite_values)
+            mdn = statistics.median(finite_values)
+            sd = statistics.stdev(finite_values) if finite_n > 1 else 0.0
+            minimum = min(finite_values)
+            maximum = max(finite_values)
+
+        def rounded(value):
+            if value is None:
+                return None
+            return MathUtil.roundTo(value, round_precision)
+
+        stats_rows.append(
+            {
+                "recordSet": record_set,
+                "scope": scope,
+                "source": source_name,
+                "dataset": dataset_name,
+                "variant": variant,
+                "metric": metric_name,
+                "n": len(values),
+                "finiteN": finite_n,
+                "mean": rounded(mean),
+                "mdn": rounded(mdn),
+                "sd": rounded(sd),
+                "min": rounded(minimum),
+                "max": rounded(maximum),
+            }
+        )
+    return stats_rows
+
+
+def _aggregate_rows_for_record_set(
+    rows: Sequence[Dict[str, object]],
+    record_set: str,
+    round_precision: int | None,
+) -> List[Dict[str, object]]:
+    aggregate_rows: List[Dict[str, object]] = []
+    grouping_specs = [
+        ("overall", ()),
+        ("source", ("source",)),
+        ("dataset", ("dataset",)),
+        ("source-dataset", ("source", "dataset")),
+        ("run", ("source", "dataset", "variant")),
+    ]
+
+    for scope, keys in grouping_specs:
+        grouped: Dict[tuple, List[Dict[str, object]]] = defaultdict(list)
+        if not keys:
+            grouped[()] = list(rows)
+        else:
+            for row in rows:
+                grouped[tuple(row.get(key) for key in keys)].append(row)
+
+        for group_key in sorted(
+            grouped.keys(),
+            key=lambda value: tuple("" if item is None else str(item) for item in value),
+        ):
+            values = dict(zip(keys, group_key))
+            aggregate_rows.extend(
+                _aggregate_summary_stats(
+                    grouped[group_key],
+                    record_set,
+                    scope,
+                    values.get("source"),
+                    values.get("dataset"),
+                    values.get("variant"),
+                    round_precision,
+                )
+            )
+    return aggregate_rows
+
+
+def build_combined_aggregate_summaries(
+    pairwise_rows: Sequence[Dict[str, object]],
+    baseline_rows: Sequence[Dict[str, object]],
+    within_comparison_rows: Sequence[Dict[str, object]],
+    round_precision: int | None,
+) -> List[Dict[str, object]]:
+    return [
+        *_aggregate_rows_for_record_set(
+            pairwise_rows,
+            "comparison-to-reference-summary",
+            round_precision,
+        ),
+        *_aggregate_rows_for_record_set(
+            baseline_rows,
+            "human-baseline",
+            round_precision,
+        ),
+        *_aggregate_rows_for_record_set(
+            within_comparison_rows,
+            "within-comparison",
+            round_precision,
+        ),
+    ]
 
 
 def _numeric_value(value):
@@ -743,6 +962,156 @@ def _lightweight_distribution_rows(
     return distribution_rows
 
 
+def _raw_distribution_outputs_from_rows(
+    rows: Sequence[Dict[str, object]],
+) -> List[Dict[str, object]]:
+    raw_rows = []
+    for row in rows:
+        base = {
+            "schemaVersion": 1,
+            "recordType": "rawDistributionOutput",
+            "runId": row.get("runId"),
+            "source": row.get("source"),
+            "dataset": row.get("dataset"),
+            "variant": row.get("variant"),
+            "classKey": row.get("classKey"),
+            "gestureMetric": row.get("metric"),
+            "withinReferenceN": row.get("withinReferenceN"),
+            "withinReferenceFiniteN": row.get("withinReferenceFiniteN"),
+            "withinComparisonN": row.get("withinComparisonN"),
+            "withinComparisonFiniteN": row.get("withinComparisonFiniteN"),
+            "betweenGroupsN": row.get("betweenGroupsN"),
+            "betweenGroupsFiniteN": row.get("betweenGroupsFiniteN"),
+        }
+        for distribution_metric in DISTRIBUTION_OUTPUT_VALUE_COLUMNS:
+            raw_rows.append(
+                {
+                    **base,
+                    "distributionMetric": distribution_metric,
+                    "value": row.get(distribution_metric),
+                }
+            )
+    return raw_rows
+
+
+def write_combined_report_exports(
+    output_root: Path,
+    pairwise_rows: Sequence[Dict[str, object]],
+    stats_rows: Sequence[Dict[str, object]],
+    baseline_rows: Sequence[Dict[str, object]],
+    baseline_stats_rows: Sequence[Dict[str, object]],
+    within_comparison_rows: Sequence[Dict[str, object]],
+    within_comparison_stats_rows: Sequence[Dict[str, object]],
+    distribution_rows: Sequence[Dict[str, object]],
+    aggregate_rows: Sequence[Dict[str, object]],
+    raw_metric_outputs: Sequence[Dict[str, object]],
+    raw_distribution_outputs: Sequence[Dict[str, object]],
+    manifest: Dict[str, object],
+) -> Dict[str, str]:
+    combined_dir = output_root / COMBINED_OUTPUT_DIRNAME
+    combined_dir.mkdir(parents=True, exist_ok=True)
+
+    pairwise_path = combined_dir / COMBINED_PAIRWISE_FILENAME
+    stats_path = combined_dir / COMBINED_STATS_FILENAME
+    baseline_path = combined_dir / COMBINED_BASELINE_FILENAME
+    baseline_stats_path = combined_dir / COMBINED_BASELINE_STATS_FILENAME
+    within_comparison_path = combined_dir / COMBINED_WITHIN_COMPARISON_FILENAME
+    within_comparison_stats_path = (
+        combined_dir / COMBINED_WITHIN_COMPARISON_STATS_FILENAME
+    )
+    distribution_path = combined_dir / COMBINED_DISTRIBUTION_FILENAME
+    aggregate_path = combined_dir / COMBINED_AGGREGATE_SUMMARIES_FILENAME
+    raw_metrics_path = combined_dir / COMBINED_RAW_METRICS_FILENAME
+    raw_distributions_path = combined_dir / COMBINED_RAW_DISTRIBUTIONS_FILENAME
+    report_path = combined_dir / COMBINED_REPORT_FILENAME
+
+    _write_csv(pairwise_path, pairwise_rows, PAIRWISE_COLUMNS)
+    _write_csv(stats_path, stats_rows, STATS_COLUMNS)
+    _write_csv(baseline_path, baseline_rows, BASELINE_COLUMNS)
+    _write_csv(baseline_stats_path, baseline_stats_rows, STATS_COLUMNS)
+    _write_csv(within_comparison_path, within_comparison_rows, PAIRWISE_COLUMNS)
+    _write_csv(
+        within_comparison_stats_path,
+        within_comparison_stats_rows,
+        STATS_COLUMNS,
+    )
+    _write_csv(distribution_path, distribution_rows, DISTRIBUTION_COLUMNS)
+    _write_csv(aggregate_path, aggregate_rows, AGGREGATE_SUMMARY_COLUMNS)
+    write_jsonl_rows(raw_metrics_path, raw_metric_outputs)
+    write_jsonl_rows(raw_distributions_path, raw_distribution_outputs)
+
+    _write_json(
+        report_path,
+        {
+            "metadata": {
+                "mode": manifest["mode"],
+                "baselineMode": manifest["baselineMode"],
+                "datasetsRoot": manifest["datasetsRoot"],
+                "outputDir": manifest["outputDir"],
+                "groupBy": manifest["groupBy"],
+                "classScheme": manifest["classScheme"],
+                "rate": manifest["rate"],
+                "roundPrecision": manifest["roundPrecision"],
+                "alignment": manifest["alignment"],
+                "summary": manifest["summary"],
+                "popular": manifest["popular"],
+                "exactDtw": manifest["exactDtw"],
+                "dtwWindow": manifest["dtwWindow"],
+                "runCount": len(manifest["runs"]),
+                "pairwiseRows": len(pairwise_rows),
+                "statsRows": len(stats_rows),
+                "baselineRows": len(baseline_rows),
+                "baselineStatsRows": len(baseline_stats_rows),
+                "withinComparisonRows": len(within_comparison_rows),
+                "withinComparisonStatsRows": len(within_comparison_stats_rows),
+                "distributionRows": len(distribution_rows),
+                "aggregateRows": len(aggregate_rows),
+                "rawMetricRows": len(raw_metric_outputs),
+                "rawDistributionRows": len(raw_distribution_outputs),
+            },
+            "files": {
+                "pairwise": str(pairwise_path),
+                "stats": str(stats_path),
+                "baseline": str(baseline_path),
+                "baselineStats": str(baseline_stats_path),
+                "withinComparison": str(within_comparison_path),
+                "withinComparisonStats": str(within_comparison_stats_path),
+                "distribution": str(distribution_path),
+                "aggregateSummaries": str(aggregate_path),
+                "rawMetrics": str(raw_metrics_path),
+                "rawDistributions": str(raw_distributions_path),
+            },
+            "columns": {
+                "pairwise": list(PAIRWISE_COLUMNS),
+                "stats": list(STATS_COLUMNS),
+                "baseline": list(BASELINE_COLUMNS),
+                "baselineStats": list(STATS_COLUMNS),
+                "withinComparison": list(PAIRWISE_COLUMNS),
+                "withinComparisonStats": list(STATS_COLUMNS),
+                "distribution": list(DISTRIBUTION_COLUMNS),
+                "aggregateSummaries": list(AGGREGATE_SUMMARY_COLUMNS),
+            },
+            "runs": manifest["runs"],
+            "warnings": manifest["warnings"],
+            "planningWarnings": manifest.get("planningWarnings", []),
+        },
+    )
+    return {
+        "directory": str(combined_dir),
+        "pairwise": str(pairwise_path),
+        "stats": str(stats_path),
+        "baseline": str(baseline_path),
+        "baselineStats": str(baseline_stats_path),
+        "withinComparison": str(within_comparison_path),
+        "withinComparisonStats": str(within_comparison_stats_path),
+        "distribution": str(distribution_path),
+        "aggregateSummaries": str(aggregate_path),
+        "rawMetrics": str(raw_metrics_path),
+        "rawDistributions": str(raw_distributions_path),
+        "report": str(report_path),
+    }
+
+
 def _compare_class(
     reference_entries: Sequence[ReportingEntry],
     candidate_entries: Sequence[ReportingEntry],
@@ -760,7 +1129,7 @@ def _compare_class(
     metric_names: Sequence[str],
     dtw_window: int | None,
     exact_dtw: bool,
-) -> tuple[list[dict], list[dict], list[dict], list[dict], dict]:
+) -> tuple[list[dict], list[dict], list[dict], list[dict], list[dict], dict]:
     reference_points = [entry.points for entry in reference_entries]
     effective_rate = sampling_rate_for_sets(reference_points, rate)
     selected_dtw_window = _effective_dtw_window(effective_rate, dtw_window, exact_dtw)
@@ -777,15 +1146,17 @@ def _compare_class(
     )
 
     rows = []
+    raw_metric_outputs = []
     for candidate_entry in candidate_entries:
         candidate = Gesture(candidate_entry.points, summary_label, effective_rate)
-        metric_values = compute_metrics(
+        raw_metric_values = compute_metrics(
             candidate,
             reference_summary,
-            round_precision=round_precision,
+            round_precision=None,
             metric_names=metric_names,
             dtw_window=selected_dtw_window,
         )
+        metric_values = _rounded_metric_values(raw_metric_values, round_precision)
         row = {
             "runId": run_id,
             "source": source_name,
@@ -808,6 +1179,13 @@ def _compare_class(
         }
         row.update(metric_values)
         rows.append(row)
+        raw_metric_outputs.extend(
+            _raw_metric_outputs_from_values(
+                row,
+                raw_metric_values,
+                "comparison-to-reference-summary",
+            )
+        )
 
     within_comparison_rows = []
     for left_entry, right_entry in combinations(candidate_entries, 2):
@@ -837,6 +1215,10 @@ def _compare_class(
             dtw_window=selected_dtw_window,
             exact_dtw=exact_dtw,
         )
+        raw_metric_values = {
+            metric_name: (forward_values[metric_name] + backward_values[metric_name]) / 2.0
+            for metric_name in metric_names
+        }
         row = {
             "runId": run_id,
             "source": source_name,
@@ -861,12 +1243,15 @@ def _compare_class(
             "dtwWindow": selected_dtw_window,
             "exactDtw": bool(exact_dtw),
         }
-        for metric_name in metric_names:
-            row[metric_name] = MathUtil.roundTo(
-                (forward_values[metric_name] + backward_values[metric_name]) / 2.0,
-                round_precision,
-            )
+        row.update(_rounded_metric_values(raw_metric_values, round_precision))
         within_comparison_rows.append(row)
+        raw_metric_outputs.extend(
+            _raw_metric_outputs_from_values(
+                row,
+                raw_metric_values,
+                "within-comparison",
+            )
+        )
 
     stats_rows = _summary_stats(
         rows,
@@ -906,7 +1291,14 @@ def _compare_class(
         "dtwWindow": selected_dtw_window,
         "exactDtw": bool(exact_dtw),
     }
-    return rows, stats_rows, within_comparison_rows, within_comparison_stats_rows, metadata
+    return (
+        rows,
+        stats_rows,
+        within_comparison_rows,
+        within_comparison_stats_rows,
+        raw_metric_outputs,
+        metadata,
+    )
 
 
 def _baseline_stats(
@@ -945,7 +1337,7 @@ def _compare_human_baseline_class(
     metric_names: Sequence[str],
     dtw_window: int | None,
     exact_dtw: bool,
-) -> tuple[list[dict], list[dict], dict]:
+) -> tuple[list[dict], list[dict], list[dict], dict]:
     baseline_source_name = "human"
     reference_points = [entry.points for entry in reference_entries]
     effective_rate = sampling_rate_for_sets(reference_points, rate)
@@ -963,14 +1355,16 @@ def _compare_human_baseline_class(
     )
 
     rows = []
+    raw_metric_outputs = []
     for reference_entry, reference_gesture in zip(reference_entries, reference_gestures):
-        metric_values = compute_metrics(
+        raw_metric_values = compute_metrics(
             reference_gesture,
             reference_summary,
-            round_precision=round_precision,
+            round_precision=None,
             metric_names=metric_names,
             dtw_window=selected_dtw_window,
         )
+        metric_values = _rounded_metric_values(raw_metric_values, round_precision)
         row = {
             "runId": run_id,
             "source": baseline_source_name,
@@ -992,6 +1386,13 @@ def _compare_human_baseline_class(
         }
         row.update(metric_values)
         rows.append(row)
+        raw_metric_outputs.extend(
+            _raw_metric_outputs_from_values(
+                row,
+                raw_metric_values,
+                "human-baseline",
+            )
+        )
 
     stats_rows = _baseline_stats(
         rows,
@@ -1022,7 +1423,7 @@ def _compare_human_baseline_class(
         "dtwWindow": selected_dtw_window,
         "exactDtw": bool(exact_dtw),
     }
-    return rows, stats_rows, metadata
+    return rows, stats_rows, raw_metric_outputs, metadata
 
 
 def _output_run_dir(output_root: Path, source_name: str, dataset_name: str, variant: str | None):
@@ -1240,6 +1641,14 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
         verbosity=verbosity_from_opt(opt),
     )
     all_distribution_rows: List[Dict[str, object]] = []
+    combined_pairwise_rows: List[Dict[str, object]] = []
+    combined_stats_rows: List[Dict[str, object]] = []
+    combined_baseline_rows: List[Dict[str, object]] = []
+    combined_baseline_stats_rows: List[Dict[str, object]] = []
+    combined_within_comparison_rows: List[Dict[str, object]] = []
+    combined_within_comparison_stats_rows: List[Dict[str, object]] = []
+    combined_raw_metric_outputs: List[Dict[str, object]] = []
+    combined_raw_distribution_outputs: List[Dict[str, object]] = []
     if verbosity_from_opt(opt) >= 2:
         print(
             (
@@ -1301,6 +1710,8 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
                 run_within_comparison_rows: List[Dict[str, object]] = []
                 run_within_comparison_stats: List[Dict[str, object]] = []
                 run_distribution_rows: List[Dict[str, object]] = []
+                run_raw_metric_outputs: List[Dict[str, object]] = []
+                run_raw_distribution_outputs: List[Dict[str, object]] = []
                 class_manifests = []
                 skipped_classes = []
 
@@ -1331,6 +1742,7 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
                         stats_rows,
                         within_comparison_rows,
                         within_comparison_stats_rows,
+                        raw_metric_outputs,
                         class_metadata,
                     ) = _compare_class(
                         class_references,
@@ -1350,7 +1762,12 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
                         dtw_window,
                         bool(opt.exact_dtw),
                     )
-                    baseline_rows, baseline_stats_rows, baseline_metadata = (
+                    (
+                        baseline_rows,
+                        baseline_stats_rows,
+                        baseline_raw_metric_outputs,
+                        baseline_metadata,
+                    ) = (
                         _compare_human_baseline_class(
                             class_references,
                             run_id,
@@ -1382,6 +1799,16 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
                     )
                     _write_csv(class_output_dir / "pairwise.csv", rows, PAIRWISE_COLUMNS)
                     _write_csv(class_output_dir / "stats.csv", stats_rows, STATS_COLUMNS)
+                    _write_csv(
+                        class_output_dir / "within_comparison.csv",
+                        within_comparison_rows,
+                        PAIRWISE_COLUMNS,
+                    )
+                    _write_csv(
+                        class_output_dir / "within_comparison_stats.csv",
+                        within_comparison_stats_rows,
+                        STATS_COLUMNS,
+                    )
                     _write_json(
                         class_output_dir / "baseline.json",
                         {
@@ -1410,6 +1837,9 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
                         metric_names,
                         round_precision,
                     )
+                    class_raw_distribution_outputs = _raw_distribution_outputs_from_rows(
+                        class_distribution_rows
+                    )
                     _write_csv(
                         class_output_dir / "distribution.csv",
                         class_distribution_rows,
@@ -1423,6 +1853,9 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
                     run_within_comparison_rows.extend(within_comparison_rows)
                     run_within_comparison_stats.extend(within_comparison_stats_rows)
                     run_distribution_rows.extend(class_distribution_rows)
+                    run_raw_metric_outputs.extend(raw_metric_outputs)
+                    run_raw_metric_outputs.extend(baseline_raw_metric_outputs)
+                    run_raw_distribution_outputs.extend(class_raw_distribution_outputs)
                     class_manifests.append(
                         {
                             **class_metadata,
@@ -1437,6 +1870,11 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
                             "baselineRows": len(baseline_rows),
                             "baselineStatsRows": len(baseline_stats_rows),
                             "distributionRows": len(class_distribution_rows),
+                            "rawMetricRows": (
+                                len(raw_metric_outputs)
+                                + len(baseline_raw_metric_outputs)
+                            ),
+                            "rawDistributionRows": len(class_raw_distribution_outputs),
                         }
                     )
                     progress.finish_class(run_id, class_key, len(rows))
@@ -1457,6 +1895,8 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
                     "withinComparisonRows": len(run_within_comparison_rows),
                     "withinComparisonStatsRows": len(run_within_comparison_stats),
                     "distributionRows": len(run_distribution_rows),
+                    "rawMetricRows": len(run_raw_metric_outputs),
+                    "rawDistributionRows": len(run_raw_distribution_outputs),
                     "classes": class_manifests,
                     "skippedClasses": skipped_classes,
                 }
@@ -1471,6 +1911,16 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
                 )
                 _write_csv(run_dir / "pairwise.csv", run_rows, PAIRWISE_COLUMNS)
                 _write_csv(run_dir / "stats.csv", run_stats, STATS_COLUMNS)
+                _write_csv(
+                    run_dir / "within_comparison.csv",
+                    run_within_comparison_rows,
+                    PAIRWISE_COLUMNS,
+                )
+                _write_csv(
+                    run_dir / "within_comparison_stats.csv",
+                    run_within_comparison_stats,
+                    STATS_COLUMNS,
+                )
                 _write_json(
                     run_dir / "baseline.json",
                     {
@@ -1496,9 +1946,39 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
                 _write_json(run_dir / "manifest.json", run_manifest)
                 manifest["runs"].append(run_manifest)
                 all_distribution_rows.extend(run_distribution_rows)
+                combined_pairwise_rows.extend(run_rows)
+                combined_stats_rows.extend(run_stats)
+                combined_baseline_rows.extend(run_baseline_rows)
+                combined_baseline_stats_rows.extend(run_baseline_stats)
+                combined_within_comparison_rows.extend(run_within_comparison_rows)
+                combined_within_comparison_stats_rows.extend(
+                    run_within_comparison_stats
+                )
+                combined_raw_metric_outputs.extend(run_raw_metric_outputs)
+                combined_raw_distribution_outputs.extend(run_raw_distribution_outputs)
                 progress.finish_run(run_id, len(run_rows))
 
     _write_csv(output_root / "distribution.csv", all_distribution_rows, DISTRIBUTION_COLUMNS)
+    combined_aggregate_rows = build_combined_aggregate_summaries(
+        combined_pairwise_rows,
+        combined_baseline_rows,
+        combined_within_comparison_rows,
+        round_precision,
+    )
+    manifest["combinedOutputs"] = write_combined_report_exports(
+        output_root,
+        combined_pairwise_rows,
+        combined_stats_rows,
+        combined_baseline_rows,
+        combined_baseline_stats_rows,
+        combined_within_comparison_rows,
+        combined_within_comparison_stats_rows,
+        all_distribution_rows,
+        combined_aggregate_rows,
+        combined_raw_metric_outputs,
+        combined_raw_distribution_outputs,
+        manifest,
+    )
     _write_json(output_root / "manifest.json", manifest)
     return 0
 

@@ -4,7 +4,11 @@ import json
 
 from relacc.gestures.ptaligntype import PtAlignType
 from relacc.metrics import get_metric_names
-from relacc.pipeline._common import output_format
+from relacc.pipeline._common import (
+    default_raw_output_path,
+    output_format,
+    write_jsonl_rows,
+)
 from relacc.pipeline.pairwise import (
     COMPARISON_MODES,
     DIRECT_MODE,
@@ -45,6 +49,7 @@ def build_parser():
     parser.set_defaults(strict=True)
     parser.add_argument("-f", "--format")
     parser.add_argument("-o", "--output")
+    parser.add_argument("--raw-output")
     parser.add_argument("--round")
     parser.add_argument("--exact-dtw", action="store_true")
     parser.add_argument("--dtw-window")
@@ -142,6 +147,10 @@ def _run_experiment(opt, paths=None, metadata=None):
         result = format_pair_rows_csv(payload["pairs"], metric_names=metric_names)
 
     _display_result(result, opt.output, debug)
+    raw_output = opt.raw_output or default_raw_output_path(opt.output)
+    if raw_output:
+        write_jsonl_rows(raw_output, payload["rawMetricOutputs"])
+        debug.fmt("Raw metric outputs were saved in %s", raw_output)
     append_run_log(paths or {}, "Output format: %s" % fmt)
 
     return 0

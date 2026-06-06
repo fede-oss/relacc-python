@@ -6,11 +6,11 @@ import pytest
 
 @pytest.mark.parametrize(
     ("script_name", "expected"),
-    [
-        ("relacc", "files"),
-        ("relacc-pairwise", "reference"),
-        ("relacc-distribution", "candidate"),
-    ],
+        [
+            ("relacc", "files"),
+            ("relacc-pairwise", "reference"),
+            ("relacc-distribution", "comparison"),
+        ],
 )
 def test_installed_console_scripts_help_smoke(script_name, expected):
     executable = shutil.which(script_name)

@@ -398,6 +398,7 @@ def _metric_samples_for_class(
     popular_shape: bool,
     dtw_window: int | None = None,
     exact_dtw: bool = False,
+    return_raw: bool = False,
 ):
     reference_points = [entry.points for entry in spec.reference_entries]
     effective_rate = sampling_rate_for_sets(reference_points, rate)
@@ -407,6 +408,7 @@ def _metric_samples_for_class(
         group_type: {metric_name: [] for metric_name in METRIC_NAMES}
         for group_type in COMPARISON_GROUP_TYPES
     }
+    raw_metric_outputs = []
 
     for left_entry, right_entry in _unordered_pairs(spec.reference_entries):
         forward_values = compute_pair_metrics_from_points(
@@ -432,8 +434,31 @@ def _metric_samples_for_class(
             exact_dtw=exact_dtw,
         )
         for metric_name in METRIC_NAMES:
-            samples[WITHIN_REFERENCE_GROUP][metric_name].append(
-                (forward_values[metric_name] + backward_values[metric_name]) / 2.0
+            value = (forward_values[metric_name] + backward_values[metric_name]) / 2.0
+            samples[WITHIN_REFERENCE_GROUP][metric_name].append(value)
+            raw_metric_outputs.append(
+                {
+                    "schemaVersion": 1,
+                    "recordType": "rawMetricOutput",
+                    "comparisonMode": DISTRIBUTION_MODE,
+                    "sampleKind": WITHIN_REFERENCE_GROUP,
+                    "classKey": spec.class_key,
+                    "leftReferenceKey": left_entry.key,
+                    "leftReferenceFile": left_entry.path,
+                    "rightReferenceKey": right_entry.key,
+                    "rightReferenceFile": right_entry.path,
+                    "metric": metric_name,
+                    "value": value,
+                    "forwardValue": forward_values[metric_name],
+                    "backwardValue": backward_values[metric_name],
+                    "rate": effective_rate,
+                    "requestedRate": rate,
+                    "alignment": alignment_type,
+                    "summary": summary_shape,
+                    "popular": bool(popular_shape),
+                    "dtwWindow": selected_dtw_window,
+                    "exactDtw": bool(exact_dtw),
+                }
             )
 
     for left_entry, right_entry in _unordered_pairs(spec.candidate_entries):
@@ -460,8 +485,31 @@ def _metric_samples_for_class(
             exact_dtw=exact_dtw,
         )
         for metric_name in METRIC_NAMES:
-            samples[WITHIN_COMPARISON_GROUP][metric_name].append(
-                (forward_values[metric_name] + backward_values[metric_name]) / 2.0
+            value = (forward_values[metric_name] + backward_values[metric_name]) / 2.0
+            samples[WITHIN_COMPARISON_GROUP][metric_name].append(value)
+            raw_metric_outputs.append(
+                {
+                    "schemaVersion": 1,
+                    "recordType": "rawMetricOutput",
+                    "comparisonMode": DISTRIBUTION_MODE,
+                    "sampleKind": WITHIN_COMPARISON_GROUP,
+                    "classKey": spec.class_key,
+                    "leftComparisonKey": left_entry.key,
+                    "leftComparisonFile": left_entry.path,
+                    "rightComparisonKey": right_entry.key,
+                    "rightComparisonFile": right_entry.path,
+                    "metric": metric_name,
+                    "value": value,
+                    "forwardValue": forward_values[metric_name],
+                    "backwardValue": backward_values[metric_name],
+                    "rate": effective_rate,
+                    "requestedRate": rate,
+                    "alignment": alignment_type,
+                    "summary": summary_shape,
+                    "popular": bool(popular_shape),
+                    "dtwWindow": selected_dtw_window,
+                    "exactDtw": bool(exact_dtw),
+                }
             )
 
     for reference_entry, candidate_entry in _between_group_pairs(
@@ -481,8 +529,70 @@ def _metric_samples_for_class(
         )
         for metric_name in METRIC_NAMES:
             samples[BETWEEN_GROUPS][metric_name].append(values[metric_name])
+            raw_metric_outputs.append(
+                {
+                    "schemaVersion": 1,
+                    "recordType": "rawMetricOutput",
+                    "comparisonMode": DISTRIBUTION_MODE,
+                    "sampleKind": BETWEEN_GROUPS,
+                    "classKey": spec.class_key,
+                    "referenceKey": reference_entry.key,
+                    "referenceFile": reference_entry.path,
+                    "comparisonKey": candidate_entry.key,
+                    "comparisonFile": candidate_entry.path,
+                    "metric": metric_name,
+                    "value": values[metric_name],
+                    "rate": effective_rate,
+                    "requestedRate": rate,
+                    "alignment": alignment_type,
+                    "summary": summary_shape,
+                    "popular": bool(popular_shape),
+                    "dtwWindow": selected_dtw_window,
+                    "exactDtw": bool(exact_dtw),
+                }
+            )
 
+    if return_raw:
+        return samples, raw_metric_outputs, effective_rate, selected_dtw_window
     return samples, effective_rate, selected_dtw_window
+
+
+def _raw_distribution_outputs(results: Sequence[Dict[str, object]]):
+    rows = []
+    for result in results:
+        base = {
+            "schemaVersion": 1,
+            "recordType": "rawDistributionOutput",
+            "comparisonMode": DISTRIBUTION_MODE,
+            "scope": result.get("scope"),
+            "classKey": result.get("classKey"),
+            "gestureMetric": result.get("gestureMetric"),
+            "referenceGroupCount": result.get("referenceGroupCount"),
+            "comparisonGroupCount": result.get("comparisonGroupCount"),
+            "withinReferenceSampleCount": result.get("withinReferenceSampleCount"),
+            "withinComparisonSampleCount": result.get("withinComparisonSampleCount"),
+            "betweenGroupsSampleCount": result.get("betweenGroupsSampleCount"),
+        }
+        for distribution_metric, value in result.get("distributionMetrics", {}).items():
+            rows.append(
+                {
+                    **base,
+                    "distributionMetric": distribution_metric,
+                    "value": value,
+                }
+            )
+        for ratio_name, value in result.get("withinComparisonToReferenceRatios", {}).items():
+            formatted_ratio_name = ratio_name[:1].upper() + ratio_name[1:]
+            rows.append(
+                {
+                    **base,
+                    "distributionMetric": (
+                        "withinComparisonToReference%sRatio" % formatted_ratio_name
+                    ),
+                    "value": value,
+                }
+            )
+    return rows
 
 
 def run_distribution_comparison(
@@ -520,9 +630,15 @@ def run_distribution_comparison(
     total_reference_count = 0
     total_candidate_count = 0
     effective_dtw_windows = set()
+    raw_metric_outputs = []
 
     for spec in valid_classes:
-        class_samples, _, selected_dtw_window = _metric_samples_for_class(
+        (
+            class_samples,
+            class_raw_metric_outputs,
+            _,
+            selected_dtw_window,
+        ) = _metric_samples_for_class(
             spec,
             rate=rate,
             alignment_type=alignment_type,
@@ -530,7 +646,9 @@ def run_distribution_comparison(
             popular_shape=popular_shape,
             dtw_window=dtw_window,
             exact_dtw=exact_dtw,
+            return_raw=True,
         )
+        raw_metric_outputs.extend(class_raw_metric_outputs)
         effective_dtw_windows.add(selected_dtw_window)
         total_reference_count += len(spec.reference_entries)
         total_candidate_count += len(spec.candidate_entries)
@@ -576,6 +694,10 @@ def run_distribution_comparison(
         )
         for metric_name in METRIC_NAMES
     ]
+    raw_distribution_outputs = [
+        *_raw_distribution_outputs(per_class_results),
+        *_raw_distribution_outputs(overall_results),
+    ]
 
     return {
         "metadata": {
@@ -616,6 +738,8 @@ def run_distribution_comparison(
             "perClass": per_class_results,
             "overall": overall_results,
         },
+        "rawMetricOutputs": raw_metric_outputs,
+        "rawDistributionOutputs": raw_distribution_outputs,
     }
 
 
