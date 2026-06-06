@@ -169,6 +169,13 @@ def test_main_csv_and_xml_file_output(tmp_path):
     assert out_xml.exists()
     assert out_csv.read_text(encoding="utf-8").startswith("measure,n,mean")
     assert out_xml.read_text(encoding="utf-8").startswith("<?xml")
+    raw_csv = out_csv.with_suffix(out_csv.suffix + ".raw-metrics.jsonl")
+    raw_rows = [
+        json.loads(line)
+        for line in raw_csv.read_text(encoding="utf-8").splitlines()
+    ]
+    assert raw_rows[0]["recordType"] == "rawMetricOutput"
+    assert raw_rows[0]["comparisonMode"] == "one-vs-many"
 
 
 def test_main_file_output_writes_reproducibility_sidecars(tmp_path):

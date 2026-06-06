@@ -111,6 +111,18 @@ def test_main_distribution_csv_file_output_parent_dir_grouping(tmp_path):
     assert "withinReferenceMean" in header
     assert "withinComparisonToReferenceMeanRatio" in header
     assert "baselineMean" not in header
+    raw_csv = out_csv.with_suffix(out_csv.suffix + ".raw-metrics.jsonl")
+    raw_rows = [
+        json.loads(line)
+        for line in raw_csv.read_text(encoding="utf-8").splitlines()
+    ]
+    assert {"rawMetricOutput", "rawDistributionOutput"}.issubset(
+        {row["recordType"] for row in raw_rows}
+    )
+    assert {
+        "withinReference",
+        "betweenGroups",
+    }.issubset({row.get("sampleKind") for row in raw_rows})
 
 
 def test_main_distribution_legacy_csv_names_are_opt_in(tmp_path):

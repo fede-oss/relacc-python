@@ -240,6 +240,27 @@ def test_run_distribution_comparison_outputs_per_class_and_overall(tmp_path):
     assert overall_shape["withinReferenceStats"]["n"] == 5
     assert overall_shape["withinComparisonStats"]["n"] == 1
     assert overall_shape["betweenGroupsStats"]["n"] == 9
+    assert len(payload["rawMetricOutputs"]) == 15 * len(METRIC_NAMES)
+    assert {row["recordType"] for row in payload["rawMetricOutputs"]} == {
+        "rawMetricOutput"
+    }
+    assert {row["sampleKind"] for row in payload["rawMetricOutputs"]} == {
+        Distribution.WITHIN_REFERENCE_GROUP,
+        Distribution.WITHIN_COMPARISON_GROUP,
+        Distribution.BETWEEN_GROUPS,
+    }
+    assert all("candidateKey" not in row for row in payload["rawMetricOutputs"])
+    assert len(payload["rawDistributionOutputs"]) > 0
+    assert {row["recordType"] for row in payload["rawDistributionOutputs"]} == {
+        "rawDistributionOutput"
+    }
+    assert {
+        "withinComparisonToReferenceMeanRatio",
+        "withinComparisonToReferenceMdnRatio",
+        "withinComparisonToReferenceSdRatio",
+    }.issubset(
+        {row["distributionMetric"] for row in payload["rawDistributionOutputs"]}
+    )
 
 
 def test_run_distribution_comparison_keeps_stroke_error_stats_coherent(tmp_path):

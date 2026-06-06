@@ -46,6 +46,9 @@ def test_run_one_vs_many_comparison_outputs_samples_and_stats(tmp_path):
     assert len(payload["samples"]) == 2
     assert payload["samples"][0]["file"] == "s1-arrow-t1"
     assert set(payload["results"].keys()) == set(METRIC_NAMES)
+    assert len(payload["rawMetricOutputs"]) == 2 * len(METRIC_NAMES)
+    assert payload["rawMetricOutputs"][0]["recordType"] == "rawMetricOutput"
+    assert payload["rawMetricOutputs"][0]["comparisonMode"] == "one-vs-many"
 
 
 def test_run_one_vs_many_stats_aggregate_raw_values_before_rounding(monkeypatch, tmp_path):
@@ -93,6 +96,7 @@ def test_run_one_vs_many_stats_aggregate_raw_values_before_rounding(monkeypatch,
 
     assert [sample["shapeError"] for sample in payload["samples"]] == [1.2, 1.3, 1.3]
     assert payload["results"]["shapeError"]["mean"] == 1.2
+    assert [row["value"] for row in payload["rawMetricOutputs"]] == [1.24, 1.25, 1.25]
 
 
 def test_run_one_vs_many_rejects_bad_rate_and_bad_inferred_label(tmp_path):
