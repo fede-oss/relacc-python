@@ -1367,19 +1367,12 @@ def plot_ratio_boxplots(distribution_rows: list[dict], output_dir: Path) -> None
             )
             outlier_label_added = True
         if has_outliers:
-            outlier_floor = max(min(whisker_caps), EPSILON)
-            ax.axhline(
-                outlier_floor,
-                color="#aa3333",
-                linestyle="--",
-                linewidth=1,
-                label="Smallest source outlier threshold",
-            )
             ax.set_yscale("log")
             ax.set_ylabel("withinComparisonMean / withinReferenceMean (outliers only)")
             ax.set_title("Core metric within-variability outliers by source\nValues above each source's 1.5x IQR whisker")
             ax.set_xticks(positions, labels, rotation=35)
-            ax.legend(loc="upper right", fontsize=8)
+            if outlier_label_added:
+                ax.legend(loc="upper right", fontsize=8)
             fig.tight_layout()
             fig.savefig(
                 output_dir / "boxplots" / "core_within_variability_ratio_outliers_by_source.png",
