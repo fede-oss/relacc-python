@@ -1350,20 +1350,36 @@ def plot_ratio_boxplots(distribution_rows: list[dict], output_dir: Path) -> None
         fig, ax = plt.subplots(figsize=(max(8, len(labels) * 0.8), 5.5))
         positions = np.arange(1, len(labels) + 1)
         has_outliers = False
+        outlier_label_added = False
         for position, label, whisker_cap in zip(positions, labels, whisker_caps):
             outliers = sorted(value for value in rows_by_label[label] if value > whisker_cap)
             if not outliers:
                 continue
             has_outliers = True
             xs = np.full(len(outliers), position, dtype=float)
-            ax.scatter(xs, outliers, color="#222222", alpha=0.72, s=18)
+            ax.scatter(
+                xs,
+                outliers,
+                color="#222222",
+                alpha=0.72,
+                s=18,
+                label="Outlier ratios" if not outlier_label_added else None,
+            )
+            outlier_label_added = True
         if has_outliers:
             outlier_floor = max(min(whisker_caps), EPSILON)
-            ax.axhline(outlier_floor, color="#aa3333", linestyle="--", linewidth=1)
+            ax.axhline(
+                outlier_floor,
+                color="#aa3333",
+                linestyle="--",
+                linewidth=1,
+                label="Smallest source outlier threshold",
+            )
             ax.set_yscale("log")
             ax.set_ylabel("withinComparisonMean / withinReferenceMean (outliers only)")
             ax.set_title("Core metric within-variability outliers by source\nValues above each source's 1.5x IQR whisker")
             ax.set_xticks(positions, labels, rotation=35)
+            ax.legend(loc="upper right", fontsize=8)
             fig.tight_layout()
             fig.savefig(
                 output_dir / "boxplots" / "core_within_variability_ratio_outliers_by_source.png",
