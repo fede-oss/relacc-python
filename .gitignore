@@ -16,6 +16,7 @@ raton-sample-canvas.png
 raw-export-smoke/
 evaluation-plots/
 report-output/
+report-output-eval-*/
 report-output-16-samples-only/
 relacc_python.egg-info/
 *.md
