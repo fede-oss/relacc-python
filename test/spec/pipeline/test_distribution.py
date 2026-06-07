@@ -3,7 +3,12 @@ from pathlib import Path
 
 import pytest
 
-from relacc.distribution_metrics import DISTRIBUTION_METRIC_NAMES
+from relacc.distribution_metrics import (
+    ASYMMETRIC,
+    DISTRIBUTION_METRIC_NAMES,
+    DISTRIBUTION_METRIC_SYMMETRY,
+    SYMMETRIC,
+)
 from relacc.metrics import METRIC_NAMES
 from relacc.pipeline import distribution as Distribution
 
@@ -198,6 +203,10 @@ def test_run_distribution_comparison_outputs_per_class_and_overall(tmp_path):
     assert payload["metadata"]["validClassCount"] == 3
     assert payload["metadata"]["dtwWindow"] is None
     assert payload["metadata"]["exactDtw"] is False
+    assert {
+        entry["name"]: entry["symmetry"]
+        for entry in payload["metadata"]["distributionMetricSemantics"]
+    } == DISTRIBUTION_METRIC_SYMMETRY
     assert payload["metadata"]["skippedClasses"] == [
         {
             "classKey": "triangle",
@@ -228,6 +237,15 @@ def test_run_distribution_comparison_outputs_per_class_and_overall(tmp_path):
         "square": (1, 0, 2),
     }
     assert set(shape_rows[0]["distributionMetrics"].keys()) == set(DISTRIBUTION_METRIC_NAMES)
+    assert shape_rows[0]["distributionMetrics"]["earthMoverDistance"] == (
+        shape_rows[0]["distributionMetrics"]["wassersteinDistance"]
+    )
+    assert payload["metadata"]["distributionMetricSemantics"][1]["symmetry"] == SYMMETRIC
+    assert any(
+        entry["name"] == "klDivergenceReferenceToCandidate"
+        and entry["symmetry"] == ASYMMETRIC
+        for entry in payload["metadata"]["distributionMetricSemantics"]
+    )
     assert "baselineStats" not in shape_rows[0]
     assert "candidateStats" not in shape_rows[0]
 
