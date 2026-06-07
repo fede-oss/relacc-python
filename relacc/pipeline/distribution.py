@@ -9,7 +9,11 @@ from typing import Dict, List, Sequence, Tuple
 
 from scipy import stats
 
-from relacc.distribution_metrics import DISTRIBUTION_METRIC_NAMES, compute_distribution_metrics
+from relacc.distribution_metrics import (
+    DISTRIBUTION_METRIC_NAMES,
+    DISTRIBUTION_METRIC_SEMANTICS,
+    compute_distribution_metrics,
+)
 from relacc.gestures.ptaligntype import PtAlignType
 from relacc.metrics import METRIC_NAMES
 from relacc.utils.math import MathUtil
@@ -758,6 +762,7 @@ def run_distribution_comparison(
                 else None
             ),
             "exactDtw": bool(exact_dtw),
+            "distributionMetricSemantics": DISTRIBUTION_METRIC_SEMANTICS,
         },
         "results": {
             "perClass": per_class_results,

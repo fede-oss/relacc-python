@@ -355,10 +355,22 @@ Key flags:
 
 Current distribution metrics:
 
-- `wassersteinDistance`
-- `energyDistance`
-- `ksStatistic`
-- `ksPValue`
+- `wassersteinDistance`: symmetric Wasserstein-1 distance between scalar empirical distributions
+- `earthMoverDistance`: symmetric Earth Mover Distance alias for Wasserstein-1 in 1D
+- `wassersteinDistanceP2`: symmetric Wasserstein-2 distance between scalar empirical distributions
+- `energyDistance`: symmetric energy distance
+- `ksStatistic`: symmetric Kolmogorov-Smirnov two-sample statistic
+- `ksPValue`: Kolmogorov-Smirnov two-sample test p-value
+- `klDivergenceReferenceToCandidate`: asymmetric binned KL divergence from the reference distribution to the comparison distribution
+- `klDivergenceCandidateToReference`: asymmetric binned KL divergence from the comparison distribution to the reference distribution
+- `jeffreysDivergence`: symmetric KL-family divergence formed by summing both KL directions
+- `jensenShannonDivergence`: symmetric, finite KL-family divergence against the average distribution
+- `totalVariationDistance`: symmetric half-L1 distance between binned probability distributions
+
+The KL-family metrics intentionally include both asymmetric directions because
+`reference -> comparison` and `comparison -> reference` answer different
+support/coverage questions. The JSON metadata includes each distribution
+metric's symmetry so downstream tools can label these interpretations.
 
 ---
 
@@ -381,7 +393,8 @@ comparison file has `R * C * M` rows. To draw a histogram, filter each file by
 `datasetKey`, `classKey`, and `metric`, then plot the `value` column from the
 baseline file against the `value` column from the comparison file. The same value
 arrays can later be reused for means, medians, quantiles, skewness, kurtosis,
-Wasserstein distance, energy distance, and KS tests.
+Wasserstein/earth-mover distances, energy distance, KL-family divergences,
+total variation distance, and KS tests.
 
 ---
 
