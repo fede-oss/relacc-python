@@ -148,6 +148,60 @@ def test_quantile_summary_reports_iqr():
     assert plots.iqr_label(summary) == "2.50 [1.75-3.25]"
 
 
+def test_tukey_upper_whisker_uses_iqr_rule():
+    plots = _load_plot_module()
+
+    whisker = plots.tukey_upper_whisker([1.0, 2.0, 3.0, 4.0])
+
+    assert whisker == pytest.approx(5.5)
+
+
+def test_load_distribution_rows_infers_legacy_report_context(tmp_path):
+    plots = _load_plot_module()
+    input_dir = tmp_path / "report"
+    run_dir = input_dir / "DHG" / "1dollar"
+    run_dir.mkdir(parents=True)
+    (run_dir / "distribution.csv").write_text(
+        "\n".join(
+            [
+                "scope,classKey,gestureMetric,baselineMean,candidateMean,meanRatio,wassersteinDistance,ksStatistic",
+                "class,arrow,shapeError,1.0,2.0,2.0,0.5,0.25",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    rows = plots.load_distribution_rows(input_dir)
+
+    assert rows[0]["source"] == "DHG"
+    assert rows[0]["dataset"] == "1dollar"
+    assert rows[0]["variant"] == ""
+    assert rows[0]["metric"] == "shapeError"
+    assert rows[0]["_runLabel"] == "DHG"
+
+
+def test_plot_ratio_boxplots_writes_main_and_outlier_views(tmp_path):
+    plots = _load_plot_module()
+    output_dir = tmp_path / "plots"
+    rows = []
+    for value in [1.0, 1.1, 1.2, 1.3, 10.0]:
+        rows.append(
+            {
+                "metric": "shapeError",
+                "_runLabel": "DHG",
+                "withinReferenceMean": "1.0",
+                "withinComparisonMean": str(value),
+                "withinComparisonToReferenceMeanRatio": str(value),
+            }
+        )
+
+    plots.plot_ratio_boxplots(rows, output_dir)
+
+    assert (output_dir / "boxplots" / "core_within_variability_ratio_by_source.png").exists()
+    assert (output_dir / "boxplots" / "core_within_variability_ratio_outliers_by_source.png").exists()
+    assert (output_dir / "tables" / "core_within_variability_ratio_iqr.csv").exists()
+
+
 def test_plot_pairwise_distance_heatmaps_writes_index_for_within_comparison(tmp_path):
     plots = _load_plot_module()
     input_dir = tmp_path / "report"

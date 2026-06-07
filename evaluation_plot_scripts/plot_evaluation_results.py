@@ -226,10 +226,27 @@ def read_csv_rows(path: Path) -> list[dict]:
         return list(csv.DictReader(fh))
 
 
+def infer_report_context(input_dir: Path, path: Path) -> dict[str, str]:
+    parts = path.relative_to(input_dir).parts
+    context = {
+        "source": parts[0] if len(parts) >= 3 else "",
+        "dataset": parts[1] if len(parts) >= 3 else "",
+        "variant": "",
+    }
+    if len(parts) >= 4 and parts[2] not in {"classes", "combined"}:
+        context["variant"] = parts[2]
+    return context
+
+
 def load_distribution_rows(input_dir: Path) -> list[dict]:
     rows = []
     for path in find_report_files(input_dir, "distribution.csv"):
+        context = infer_report_context(input_dir, path)
         for row in read_csv_rows(path):
+            for key, value in context.items():
+                row.setdefault(key, value)
+            if not row.get("metric") and row.get("gestureMetric"):
+                row["metric"] = row["gestureMetric"]
             row["_file"] = str(path)
             row["_runLabel"] = run_label(row)
             rows.append(row)
@@ -371,6 +388,16 @@ def iqr_label(summary: dict[str, float | int | None]) -> str:
         compact_number(float(summary["q1"])),
         compact_number(float(summary["q3"])),
     )
+
+
+def tukey_upper_whisker(values: Iterable[float]) -> float | None:
+    summary = quantile_summary(values)
+    q1 = summary["q1"]
+    q3 = summary["q3"]
+    iqr = summary["iqr"]
+    if q1 is None or q3 is None or iqr is None:
+        return None
+    return float(q3) + 1.5 * float(iqr)
 
 
 def build_overview_tables(distribution_rows: list[dict], output_dir: Path) -> tuple[list[dict], list[dict]]:
@@ -1253,15 +1280,23 @@ def plot_ratio_boxplots(distribution_rows: list[dict], output_dir: Path) -> None
     data = [rows_by_label[label] for label in labels]
     if not data:
         return
-    fig, ax = plt.subplots(figsize=(max(8, len(labels) * 0.8), 5.5))
-    ax.boxplot(data, tick_labels=labels, showfliers=True, whis=1.5)
-    ax.axhline(1.0, color="black", linestyle="--", linewidth=1)
-    ax.set_ylabel("withinComparisonMean / withinReferenceMean")
-    ax.set_title("Core metric within-variability ratios by source\nBox = IQR; whiskers = 1.5x IQR")
-    ax.tick_params(axis="x", rotation=35)
     iqr_rows = []
+    whisker_caps = []
+    outlier_rows = []
     for label in labels:
         summary = quantile_summary(rows_by_label[label])
+        whisker_cap = tukey_upper_whisker(rows_by_label[label])
+        if whisker_cap is not None:
+            whisker_caps.append(whisker_cap)
+            outlier_count = sum(value > whisker_cap for value in rows_by_label[label])
+            outlier_rows.append(
+                {
+                    "sourceLabel": label,
+                    "upperWhisker": whisker_cap,
+                    "outlierCount": outlier_count,
+                    "maxOutlier": max((value for value in rows_by_label[label] if value > whisker_cap), default=None),
+                }
+            )
         iqr_rows.append(
             {
                 "sourceLabel": label,
@@ -1274,12 +1309,24 @@ def plot_ratio_boxplots(distribution_rows: list[dict], output_dir: Path) -> None
                 "iqr": summary["iqr"],
             }
         )
+    fig, ax = plt.subplots(figsize=(max(8, len(labels) * 0.8), 5.5))
+    ax.boxplot(data, tick_labels=labels, showfliers=False, whis=1.5)
+    ax.axhline(1.0, color="black", linestyle="--", linewidth=1)
+    if whisker_caps:
+        main_ylim = max(max(whisker_caps) * 1.08, 1.5)
+        ax.set_ylim(0.0, main_ylim)
+    ax.set_ylabel("withinComparisonMean / withinReferenceMean")
+    ax.set_title("Core metric within-variability ratios by source\nMain range only; outliers moved to separate view")
+    ax.tick_params(axis="x", rotation=35)
     summary_lines = [
         f"{label}: {iqr_label(quantile_summary(rows_by_label[label]))}"
         for label in labels[:6]
     ]
     if len(labels) > 6:
         summary_lines.append(f"+ {len(labels) - 6} more")
+    outlier_total = sum(int(row["outlierCount"]) for row in outlier_rows)
+    if outlier_total:
+        summary_lines.append(f"{outlier_total} outliers shown separately")
     if summary_lines:
         ax.text(
             0.99,
@@ -1297,12 +1344,47 @@ def plot_ratio_boxplots(distribution_rows: list[dict], output_dir: Path) -> None
         output_dir / "boxplots" / "core_within_variability_ratio_by_source.png",
         dpi=180,
     )
+    plt.close(fig)
+
+    if whisker_caps:
+        fig, ax = plt.subplots(figsize=(max(8, len(labels) * 0.8), 5.5))
+        positions = np.arange(1, len(labels) + 1)
+        has_outliers = False
+        outlier_label_added = False
+        for position, label, whisker_cap in zip(positions, labels, whisker_caps):
+            outliers = sorted(value for value in rows_by_label[label] if value > whisker_cap)
+            if not outliers:
+                continue
+            has_outliers = True
+            xs = np.full(len(outliers), position, dtype=float)
+            ax.scatter(
+                xs,
+                outliers,
+                color="#222222",
+                alpha=0.72,
+                s=18,
+                label="Outlier ratios" if not outlier_label_added else None,
+            )
+            outlier_label_added = True
+        if has_outliers:
+            ax.set_yscale("log")
+            ax.set_ylabel("withinComparisonMean / withinReferenceMean (outliers only)")
+            ax.set_title("Core metric within-variability outliers by source\nValues above each source's 1.5x IQR whisker")
+            ax.set_xticks(positions, labels, rotation=35)
+            if outlier_label_added:
+                ax.legend(loc="upper right", fontsize=8)
+            fig.tight_layout()
+            fig.savefig(
+                output_dir / "boxplots" / "core_within_variability_ratio_outliers_by_source.png",
+                dpi=180,
+            )
+        plt.close(fig)
+
     write_csv(
         output_dir / "tables" / "core_within_variability_ratio_iqr.csv",
         iqr_rows,
         ["sourceLabel", "n", "min", "q1", "median", "q3", "max", "iqr"],
     )
-    plt.close(fig)
 
 
 def load_raw_run_rows(input_dir: Path, filename: str) -> dict[tuple[str, str, str], list[dict]]:
