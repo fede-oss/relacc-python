@@ -73,7 +73,10 @@ def test_run_all_pairwise_reports_writes_generic_distribution_summary(tmp_path):
     pairwise_rows = _read_csv(class_dir / "pairwise.csv")
     baseline_rows = _read_csv(class_dir / "baseline.csv")
     baseline_stats_rows = _read_csv(class_dir / "baseline_stats.csv")
+    within_reference_rows = _read_csv(class_dir / "within_reference.csv")
+    between_group_rows = _read_csv(class_dir / "between_groups.csv")
     distribution_rows = _read_csv(class_dir / "distribution.csv")
+    summary_distribution_rows = _read_csv(class_dir / "summary_distribution.csv")
     run_distribution_rows = _read_csv(run_dir / "distribution.csv")
     top_distribution_rows = _read_csv(output_dir / "distribution.csv")
     run_manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
@@ -90,21 +93,38 @@ def test_run_all_pairwise_reports_writes_generic_distribution_summary(tmp_path):
         "s02-arrow-fast-t02",
     ]
     assert len(baseline_stats_rows) > 0
+    assert len(within_reference_rows) == 1
+    assert len(between_group_rows) == 4
+    assert {row["mode"] for row in within_reference_rows} == {"within-reference"}
+    assert {row["mode"] for row in between_group_rows} == {"between-groups"}
     assert len(distribution_rows) == len(baseline_stats_rows)
     assert distribution_rows[0]["wassersteinDistance"] != ""
-    assert distribution_rows[0]["withinReferenceMean"] == baseline_stats_rows[0]["mean"]
+    assert distribution_rows[0]["jensenShannonDivergence"] != ""
     assert "baselineMean" not in distribution_rows[0]
     assert distribution_rows[0]["withinComparisonN"] == "1"
-    assert distribution_rows[0]["withinComparisonToReferenceMeanRatio"] != ""
     assert distribution_rows[0]["betweenGroupsMean"] != ""
+    assert len(summary_distribution_rows) == len(distribution_rows)
+    assert (
+        summary_distribution_rows[0]["withinReferenceMean"]
+        == baseline_stats_rows[0]["mean"]
+    )
+    assert "withinComparisonToReferenceMeanRatio" in summary_distribution_rows[0]
     assert len(run_distribution_rows) == len(distribution_rows)
     assert top_distribution_rows == run_distribution_rows
     assert run_manifest["pairwiseRows"] == 2
     assert run_manifest["baselineRows"] == 2
+    assert run_manifest["withinReferenceRows"] == 1
     assert run_manifest["withinComparisonRows"] == 1
+    assert run_manifest["betweenGroupsRows"] == 4
     assert run_manifest["distributionRows"] == len(distribution_rows)
+    assert run_manifest["summaryDistributionRows"] == len(summary_distribution_rows)
     assert run_manifest["classes"][0]["baselineMode"] == "human-summary-baseline"
+    assert run_manifest["classes"][0]["directDistributionMode"] == (
+        "direct-distribution-pairs"
+    )
     assert run_manifest["classes"][0]["withinComparisonRows"] == 1
+    assert run_manifest["classes"][0]["withinReferenceRows"] == 1
+    assert run_manifest["classes"][0]["betweenGroupsRows"] == 4
     assert run_manifest["classes"][0]["distributionRows"] == len(distribution_rows)
     assert run_metadata["experiment"] == "run-all-pairwise-reports"
     assert run_metadata["runtimeArgs"]["verbose"] == 2
@@ -118,8 +138,13 @@ def test_run_all_pairwise_reports_writes_generic_distribution_summary(tmp_path):
     combined_pairwise_rows = _read_csv(combined_dir / "pairwise.csv")
     combined_stats_rows = _read_csv(combined_dir / "stats.csv")
     combined_baseline_rows = _read_csv(combined_dir / "baseline.csv")
+    combined_within_reference_rows = _read_csv(combined_dir / "within_reference.csv")
     combined_within_comparison_rows = _read_csv(combined_dir / "within_comparison.csv")
+    combined_between_group_rows = _read_csv(combined_dir / "between_groups.csv")
     combined_distribution_rows = _read_csv(combined_dir / "distribution.csv")
+    combined_summary_distribution_rows = _read_csv(
+        combined_dir / "summary_distribution.csv"
+    )
     aggregate_rows = _read_csv(combined_dir / "aggregate_summaries.csv")
     report = json.loads((combined_dir / "report.json").read_text(encoding="utf-8"))
     raw_metric_rows = [
@@ -138,32 +163,46 @@ def test_run_all_pairwise_reports_writes_generic_distribution_summary(tmp_path):
     assert combined_pairwise_rows == _read_csv(run_dir / "pairwise.csv")
     assert combined_stats_rows == _read_csv(run_dir / "stats.csv")
     assert combined_baseline_rows == baseline_rows
+    assert combined_within_reference_rows == within_reference_rows
     assert combined_within_comparison_rows == _read_csv(
         run_dir / "within_comparison.csv"
     )
+    assert combined_between_group_rows == between_group_rows
     assert combined_distribution_rows == top_distribution_rows
+    assert combined_summary_distribution_rows == summary_distribution_rows
     assert {
         "comparison-to-reference-summary",
         "human-baseline",
+        "within-reference",
         "within-comparison",
+        "between-groups",
     } <= {row["recordSet"] for row in aggregate_rows}
     assert {"overall", "source", "dataset", "source-dataset", "run"} <= {
         row["scope"] for row in aggregate_rows
     }
-    assert len(raw_metric_rows) == 5 * len(PairwiseReports.METRIC_NAMES)
+    assert len(raw_metric_rows) == 10 * len(PairwiseReports.METRIC_NAMES)
     assert {row["recordType"] for row in raw_metric_rows} == {"rawMetricOutput"}
     assert {row["recordSet"] for row in raw_metric_rows} == {
         "comparison-to-reference-summary",
         "human-baseline",
+        "within-reference",
         "within-comparison",
+        "between-groups",
     }
     assert len(raw_distribution_rows) == (
         len(distribution_rows) * len(PairwiseReports.DISTRIBUTION_OUTPUT_VALUE_COLUMNS)
     )
     assert report["metadata"]["pairwiseRows"] == 2
+    assert report["metadata"]["withinReferenceRows"] == 1
     assert report["metadata"]["withinComparisonRows"] == 1
+    assert report["metadata"]["betweenGroupsRows"] == 4
+    assert report["metadata"]["summary"] == "medoid"
+    assert report["metadata"]["distributionSampleLimitPerClass"] == 16
     assert report["files"]["withinComparison"] == str(
         combined_dir / "within_comparison.csv"
+    )
+    assert report["files"]["summaryDistribution"] == str(
+        combined_dir / "summary_distribution.csv"
     )
     assert manifest["combinedOutputs"]["directory"] == str(combined_dir)
 

@@ -9,6 +9,7 @@ pairwise-report-output*/
 pairwise-report-output-OLD*/
 pairwise-report-output-full-metrics*/*
 report-output-full-metrics/
+report-output-full*
 pairwise-smoke-output/
 raton-canvas/
 raton-class-overlay.png
@@ -16,6 +17,7 @@ raton-sample-canvas.png
 raw-export-smoke/
 evaluation-plots/
 report-output/
+report-output-eval-*/
 report-output-16-samples-only/
 relacc_python.egg-info/
 *.md
