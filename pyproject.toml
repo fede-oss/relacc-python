@@ -22,16 +22,25 @@ relacc = "relacc_cli:main"
 relacc-canvas = "relacc_canvas_cli:main"
 relacc-pairwise = "relacc_pairwise_cli:main"
 relacc-distribution = "relacc_distribution_cli:main"
+relacc-web = "relacc_web.__main__:main"
 
 [project.optional-dependencies]
 dev = [
   "pytest>=7.4",
   "pytest-cov>=4.1"
 ]
+web = [
+  "fastapi>=0.110",
+  "python-multipart>=0.0.9",
+  "uvicorn>=0.27"
+]
 
 [tool.setuptools]
-packages = ["relacc", "relacc.geom", "relacc.gestures", "relacc.utils", "relacc.pipeline"]
+packages = ["relacc", "relacc.geom", "relacc.gestures", "relacc.utils", "relacc.pipeline", "relacc_web"]
 py-modules = ["relacc_cli", "relacc_canvas_cli", "relacc_pairwise_cli", "relacc_distribution_cli"]
+
+[tool.setuptools.package-data]
+relacc_web = ["static/*.html", "static/*.css", "static/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]

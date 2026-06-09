@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RelAcc Workbench</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">RelAcc</p>
+          <h1>Gesture Evaluation Workbench</h1>
+        </div>
+        <div class="run-strip" aria-live="polite">
+          <span id="statusDot" class="status-dot idle"></span>
+          <span id="statusText">Idle</span>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="control-rail" aria-label="Evaluation controls">
+          <section class="panel upload-panel">
+            <div class="panel-heading">
+              <h2>Inputs</h2>
+              <span class="panel-kicker">zip/csv</span>
+            </div>
+            <label class="dropzone" id="referenceDrop">
+              <input id="referenceZip" type="file" accept=".zip,application/zip" />
+              <span class="dropzone-label">Human/reference zip</span>
+              <strong id="referenceName">No file selected</strong>
+            </label>
+            <label class="dropzone candidate" id="candidateDrop">
+              <input id="candidateZip" type="file" accept=".zip,application/zip" />
+              <span class="dropzone-label">Generated/candidate zip</span>
+              <strong id="candidateName">No file selected</strong>
+            </label>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <h2>Mode</h2>
+              <span class="panel-kicker">comparison</span>
+            </div>
+            <div class="segmented" role="radiogroup" aria-label="Comparison mode">
+              <button class="seg active" data-mode="summary" type="button">Summary</button>
+              <button class="seg" data-mode="direct" type="button">Pairwise</button>
+              <button class="seg" data-mode="distribution" type="button">Distribution</button>
+            </div>
+            <label class="field distribution-only hidden">
+              <span>Group by</span>
+              <select id="groupBy">
+                <option value="filename-label">Filename label</option>
+                <option value="parent-dir">Parent directory</option>
+              </select>
+            </label>
+            <label class="checkline direct-only hidden">
+              <input id="strict" type="checkbox" checked />
+              <span>Strict file matching</span>
+            </label>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <h2>Metrics</h2>
+              <span class="panel-kicker">runtime</span>
+            </div>
+            <label class="field">
+              <span>Summary shape</span>
+              <select id="summary">
+                <option value="centroid">Centroid</option>
+                <option value="medoid">Medoid</option>
+                <option value="kcentroid">K-centroid</option>
+                <option value="kmedoid">K-medoid</option>
+                <option value="">First file</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Alignment</span>
+              <select id="alignment">
+                <option value="0">Chronological</option>
+                <option value="1">Cloud match</option>
+              </select>
+            </label>
+            <div class="split-fields">
+              <label class="field">
+                <span>Rate</span>
+                <input id="rate" type="number" min="1" placeholder="Auto" />
+              </label>
+              <label class="field">
+                <span>Round</span>
+                <input id="roundPrecision" type="number" min="0" max="8" value="3" />
+              </label>
+            </div>
+            <label class="checkline">
+              <input id="popular" type="checkbox" />
+              <span>Popular stroke count</span>
+            </label>
+            <label class="checkline">
+              <input id="exactDtw" type="checkbox" />
+              <span>Exact DTW</span>
+            </label>
+            <label class="field">
+              <span>DTW window</span>
+              <input id="dtwWindow" type="number" min="0" placeholder="Auto" />
+            </label>
+            <button id="runButton" class="primary-action" type="button">Run Evaluation</button>
+          </section>
+        </aside>
+
+        <section class="main-stage">
+          <section class="panel validation-panel">
+            <div class="panel-heading">
+              <h2>Validation</h2>
+              <span id="jobId" class="panel-kicker">no run</span>
+            </div>
+            <div class="progress-track">
+              <div id="progressBar" class="progress-bar"></div>
+            </div>
+            <div class="stat-grid" id="validationStats">
+              <div><span>Reference files</span><strong>-</strong></div>
+              <div><span>Candidate files</span><strong>-</strong></div>
+              <div><span>Classes</span><strong>-</strong></div>
+              <div><span>Pairs / valid classes</span><strong>-</strong></div>
+            </div>
+            <div id="issueList" class="issue-list">
+              <p class="muted">Upload two archives and run an evaluation.</p>
+            </div>
+          </section>
+
+          <section class="results-grid">
+            <section class="panel results-panel">
+              <div class="tabbar" role="tablist" aria-label="Result views">
+                <button class="tab active" data-tab="overview" type="button">Overview</button>
+                <button class="tab" data-tab="metrics" type="button">Metrics</button>
+                <button class="tab" data-tab="distributions" type="button">Distributions</button>
+                <button class="tab" data-tab="files" type="button">Files</button>
+              </div>
+              <div id="overview" class="tab-pane active"></div>
+              <div id="metrics" class="tab-pane"></div>
+              <div id="distributions" class="tab-pane"></div>
+              <div id="files" class="tab-pane"></div>
+            </section>
+
+            <aside class="panel inspector" aria-label="Trajectory overlay inspector">
+              <div class="panel-heading">
+                <h2>Overlay</h2>
+                <span class="panel-kicker">svg</span>
+              </div>
+              <label class="field">
+                <span>Gesture / class</span>
+                <select id="overlaySelect"></select>
+              </label>
+              <div class="legend-row">
+                <span><i class="swatch reference"></i> Human</span>
+                <span><i class="swatch candidate"></i> Generated</span>
+                <span><i class="swatch summary"></i> Summary</span>
+              </div>
+              <div id="overlayFrame" class="overlay-frame">
+                <div class="empty-state">Run results to inspect trajectories.</div>
+              </div>
+              <div class="export-row">
+                <a id="jsonExport" class="ghost-button disabled" href="#">JSON</a>
+                <a id="csvExport" class="ghost-button disabled" href="#">CSV</a>
+              </div>
+            </aside>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>
