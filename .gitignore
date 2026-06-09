@@ -9,6 +9,7 @@ pairwise-report-output*/
 pairwise-report-output-OLD*/
 pairwise-report-output-full-metrics*/*
 report-output-full-metrics/
+report-output-full*
 pairwise-smoke-output/
 raton-canvas/
 raton-class-overlay.png
