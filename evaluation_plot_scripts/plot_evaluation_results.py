@@ -124,7 +124,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--input-dir",
-        default="report-output-full-metrics",
+        default="report-output-full-metrics-older-missing-metrics-less-batches",
         help="Directory produced by run_all_pairwise_reports.py.",
     )
     parser.add_argument(
