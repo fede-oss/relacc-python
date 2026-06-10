@@ -323,11 +323,111 @@ def create_job(reference_zip: bytes, candidate_zip: bytes, config: EvaluationCon
     return public_job(job)
 
 
+def _safe_group_name(name: str, fallback: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() or ch in "-_." else "-" for ch in (name or "").strip())
+    return cleaned.strip("-") or fallback
+
+
+def create_group_job(
+    reference_zip: bytes,
+    comparisons: list[tuple[str, bytes]],
+    config: EvaluationConfig,
+):
+    if len(comparisons) == 1:
+        return create_job(reference_zip, comparisons[0][1], config)
+
+    job_id = uuid.uuid4().hex[:12]
+    workdir = Path(tempfile.mkdtemp(prefix=f"relacc-web-{job_id}-"))
+    reference_dir = workdir / "reference"
+    candidates_root = workdir / "candidates"
+    reference_dir.mkdir()
+    candidates_root.mkdir()
+
+    issues, _ = extract_zip(reference_zip, reference_dir, "reference")
+    candidate_dirs: dict[str, str] = {}
+    candidate_summaries = {}
+    validation = {
+        "ok": False,
+        "reference": {"fileCount": 0, "pointCount": 0, "examples": [], "classCounts": {}, "parentCounts": {}},
+        "candidate": {"fileCount": 0, "pointCount": 0, "examples": [], "classCounts": {}, "parentCounts": {}},
+        "candidates": {},
+        "mode": {"groupCount": len(comparisons)},
+        "issues": issues,
+    }
+
+    used_names = set()
+    for index, (raw_name, upload) in enumerate(comparisons, start=1):
+        name = _safe_group_name(raw_name, f"comparison-{index}")
+        while name in used_names:
+            name = f"{name}-{index}"
+        used_names.add(name)
+        candidate_dir = candidates_root / name
+        candidate_dir.mkdir()
+        candidate_issues, _ = extract_zip(upload, candidate_dir, name)
+        issues.extend(candidate_issues)
+        candidate_dirs[name] = str(candidate_dir)
+
+    if not any(issue["severity"] == "error" for issue in issues):
+        reference_summary, reference_issues = _dataset_summary(
+            reference_dir,
+            "reference",
+            config.group_by if config.mode == "distribution" else GROUP_BY_PARENT_DIR,
+        )
+        issues.extend(reference_issues)
+        for name, path in candidate_dirs.items():
+            candidate_summary, candidate_issues = _dataset_summary(
+                Path(path),
+                name,
+                config.group_by if config.mode == "distribution" else GROUP_BY_PARENT_DIR,
+            )
+            candidate_summaries[name] = candidate_summary
+            issues.extend(candidate_issues)
+        validation.update(
+            {
+                "reference": reference_summary,
+                "candidate": {
+                    "fileCount": sum(item["fileCount"] for item in candidate_summaries.values()),
+                    "pointCount": sum(item["pointCount"] for item in candidate_summaries.values()),
+                    "examples": [
+                        example
+                        for summary in candidate_summaries.values()
+                        for example in summary.get("examples", [])[:2]
+                    ][:8],
+                    "classCounts": {},
+                    "parentCounts": {},
+                },
+                "candidates": candidate_summaries,
+            }
+        )
+
+    validation["issues"] = issues
+    validation["ok"] = not any(issue["severity"] == "error" for issue in issues)
+    status = "queued" if validation["ok"] else "failed"
+    job = {
+        "id": job_id,
+        "status": status,
+        "phase": "Queued" if validation["ok"] else "Validation failed",
+        "progress": 8 if validation["ok"] else 100,
+        "createdAt": time.time(),
+        "updatedAt": time.time(),
+        "config": config.__dict__,
+        "validation": validation,
+        "workdir": str(workdir),
+        "referenceDir": str(reference_dir),
+        "candidateDirs": candidate_dirs,
+        "result": None,
+        "error": None if validation["ok"] else "Validation failed.",
+    }
+    with LOCK:
+        JOBS[job_id] = job
+    return public_job(job)
+
+
 def public_job(job: dict[str, Any]):
     safe = {
         key: value
         for key, value in job.items()
-        if key not in {"workdir", "referenceDir", "candidateDir"}
+        if key not in {"workdir", "referenceDir", "candidateDir", "candidateDirs"}
     }
     return _json_safe(safe)
 
@@ -354,12 +454,67 @@ def run_job(job_id: str):
 
     config = EvaluationConfig(**job["config"])
     reference_dir = job["referenceDir"]
-    candidate_dir = job["candidateDir"]
 
     _update_job(job_id, status="running", phase="Preparing pipeline", progress=22)
     start = time.time()
     try:
-        if config.mode == "distribution":
+        candidate_dirs = job.get("candidateDirs")
+        if candidate_dirs:
+            results = []
+            pair_rows = []
+            for index, (name, candidate_dir) in enumerate(candidate_dirs.items(), start=1):
+                _update_job(
+                    job_id,
+                    phase=f"Computing group {name}",
+                    progress=min(90, 20 + int(index / max(len(candidate_dirs), 1) * 65)),
+                )
+                if config.mode == "distribution":
+                    group_result = run_distribution_comparison(
+                        reference_dir,
+                        candidate_dir,
+                        rate=config.rate,
+                        alignment_type=config.alignment,
+                        summary_shape=config.summary,
+                        popular_shape=config.popular,
+                        round_precision=config.round_precision,
+                        group_by=config.group_by,
+                        dtw_window=config.dtw_window,
+                        exact_dtw=config.exact_dtw,
+                    )
+                    group_result.setdefault("metadata", {})["comparisonGroup"] = name
+                    results.append(group_result)
+                else:
+                    group_result = run_pairwise_comparison(
+                        reference_dir,
+                        candidate_dir,
+                        rate=config.rate,
+                        alignment_type=config.alignment,
+                        summary_shape=config.summary,
+                        popular_shape=config.popular,
+                        strict=config.strict,
+                        round_precision=config.round_precision,
+                        comparison_mode=config.mode,
+                        metric_names=METRIC_NAMES,
+                        dtw_window=config.dtw_window,
+                        exact_dtw=config.exact_dtw,
+                    )
+                    for row in group_result.get("pairs", []):
+                        row["comparisonGroup"] = name
+                        pair_rows.append(row)
+                    results.append(group_result)
+            result = {
+                "metadata": {
+                    "comparisonMode": config.mode,
+                    "comparisonGroups": list(candidate_dirs.keys()),
+                    "pairCount": len(pair_rows),
+                    "runSeconds": round(time.time() - start, 3),
+                    "overlayKeys": [row.get("pairKey") for row in pair_rows[:200]],
+                },
+                "pairs": pair_rows,
+                "groupResults": results,
+            }
+        elif config.mode == "distribution":
+            candidate_dir = job["candidateDir"]
             _update_job(job_id, phase="Computing human and candidate distributions", progress=48)
             result = run_distribution_comparison(
                 reference_dir,
@@ -374,6 +529,7 @@ def run_job(job_id: str):
                 exact_dtw=config.exact_dtw,
             )
         else:
+            candidate_dir = job["candidateDir"]
             _update_job(job_id, phase="Computing pairwise gesture metrics", progress=52)
             result = run_pairwise_comparison(
                 reference_dir,

@@ -40,7 +40,7 @@ packages = ["relacc", "relacc.geom", "relacc.gestures", "relacc.utils", "relacc.
 py-modules = ["relacc_cli", "relacc_canvas_cli", "relacc_pairwise_cli", "relacc_distribution_cli"]
 
 [tool.setuptools.package-data]
-relacc_web = ["static/*.html", "static/*.css", "static/*.js"]
+relacc_web = ["static/*.html", "static/*.css", "static/*.js", "static/dist/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
