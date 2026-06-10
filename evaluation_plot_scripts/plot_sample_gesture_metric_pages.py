@@ -76,13 +76,9 @@ class ClassPanel:
     variant: str
     class_key: str
     summary_shape: str
-    generated_count: int
-    human_count: int
-    selected_generated_count: int
     generated_gestures: tuple[Gesture, ...]
     human_gestures: tuple[Gesture, ...]
     metric_summaries: tuple[MetricSummary, ...]
-    aggregate_log_ratio: float | None
     rate: int
     alignment: int
 
@@ -172,11 +168,6 @@ def parse_args() -> argparse.Namespace:
         default=None,
         choices=("centroid", "medoid", "kcentroid", "kmedoid"),
         help="Override the summary shape from the evaluation manifest.",
-    )
-    parser.add_argument(
-        "--sort-by-delta",
-        action="store_true",
-        help="Sort classes by average absolute log generated/human metric ratio.",
     )
     return parser.parse_args()
 
@@ -347,20 +338,16 @@ def build_metric_summaries(
     generated_rows: Sequence[dict[str, str]],
     human_rows: Sequence[dict[str, str]],
     metrics: Sequence[str],
-) -> tuple[tuple[MetricSummary, ...], float | None]:
+) -> tuple[MetricSummary, ...]:
     summaries = []
-    log_ratios = []
     for metric in metrics:
         generated_median = median(to_float(row.get(metric)) for row in generated_rows)
         human_median = median(to_float(row.get(metric)) for row in human_rows)
         ratio = None
         if generated_median is not None and human_median not in (None, 0):
             ratio = generated_median / human_median
-            if ratio > 0 and math.isfinite(ratio):
-                log_ratios.append(abs(math.log(ratio)))
         summaries.append(MetricSummary(metric, generated_median, human_median, ratio))
-    aggregate = float(statistics.mean(log_ratios)) if log_ratios else None
-    return tuple(summaries), aggregate
+    return tuple(summaries)
 
 
 def build_panels_for_run(
@@ -415,7 +402,7 @@ def build_panels_for_run(
         if not generated_gestures or not human_gestures:
             continue
 
-        metric_summaries, aggregate = build_metric_summaries(selected_rows, human_rows, metrics)
+        metric_summaries = build_metric_summaries(selected_rows, human_rows, metrics)
         panels.append(
             ClassPanel(
                 source=source,
@@ -423,23 +410,14 @@ def build_panels_for_run(
                 variant=variant,
                 class_key=class_key,
                 summary_shape=summary_shape,
-                generated_count=len(generated_rows),
-                human_count=len(human_rows),
-                selected_generated_count=len(selected_rows),
                 generated_gestures=generated_gestures,
                 human_gestures=human_gestures,
                 metric_summaries=metric_summaries,
-                aggregate_log_ratio=aggregate,
                 rate=rate,
                 alignment=alignment,
             )
         )
 
-    if args.sort_by_delta:
-        panels.sort(
-            key=lambda panel: panel.aggregate_log_ratio if panel.aggregate_log_ratio is not None else -1,
-            reverse=True,
-        )
     return panels
 
 
@@ -539,14 +517,7 @@ def draw_page(
         ax_metrics = fig.add_subplot(inner[1])
         draw_gesture_canvas(ax_canvas, panel, canvas_size)
 
-        delta = "delta n/a" if panel.aggregate_log_ratio is None else f"delta {panel.aggregate_log_ratio:.2f}"
-        ax_canvas.set_title(
-            (
-                f"{panel.class_key} | {panel.selected_generated_count}/{panel.generated_count} | {delta}"
-            ),
-            fontsize=6.4,
-            pad=3,
-        )
+        ax_canvas.set_title(panel.class_key, fontsize=6.4, pad=3)
         draw_metric_text(ax_metrics, panel)
 
     for idx in range(len(panels), rows * cols):
