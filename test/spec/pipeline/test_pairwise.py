@@ -259,6 +259,10 @@ def test_compute_compare_and_run_pairwise(tmp_path):
     assert payload["pairs"][0]["mode"] == "direct"
     assert payload["pairs"][0]["referenceCount"] == 1
     assert payload["pairs"][0]["dtwWindow"] is None
+    assert len(payload["rawMetricOutputs"]) == len(Pairwise.METRIC_NAMES)
+    assert payload["rawMetricOutputs"][0]["recordType"] == "rawMetricOutput"
+    assert payload["rawMetricOutputs"][0]["comparisonMode"] == "direct"
+    assert payload["rawMetricOutputs"][0]["pairKey"] == "s1"
 
 
 def test_run_pairwise_direct_no_strict_skips_invalid_pairs(tmp_path):
@@ -289,6 +293,21 @@ def test_run_pairwise_direct_no_strict_skips_invalid_pairs(tmp_path):
     assert payload["metadata"]["skippedPairErrors"][0]["pairKey"] == "invalid"
 
 
+def test_run_pairwise_direct_no_strict_rejects_all_invalid_pairs(tmp_path):
+    reference_dir = tmp_path / "reference"
+    candidate_dir = tmp_path / "candidate"
+
+    _write_csv(reference_dir / "invalid.csv", _sample_rows(2))
+    _write_csv(candidate_dir / "invalid.csv", ["stroke_id x y time is_writing"])
+
+    with pytest.raises(ValueError, match="No valid pairwise comparisons"):
+        Pairwise.run_pairwise_comparison(
+            str(reference_dir),
+            str(candidate_dir),
+            strict=False,
+        )
+
+
 def test_run_pairwise_summary_mode_compares_all_candidates(tmp_path):
     reference_dir = tmp_path / "reference"
     candidate_dir = tmp_path / "candidate"
@@ -315,6 +334,8 @@ def test_run_pairwise_summary_mode_compares_all_candidates(tmp_path):
     assert payload["metadata"]["missingInReference"] == []
     assert all(row["mode"] == "summary" for row in payload["pairs"])
     assert all(row["referenceCount"] == 2 for row in payload["pairs"])
+    assert len(payload["rawMetricOutputs"]) == 2 * len(Pairwise.METRIC_NAMES)
+    assert {row["comparisonMode"] for row in payload["rawMetricOutputs"]} == {"summary"}
 
 
 def test_run_pairwise_summary_mode_auto_rate_uses_reference_only(tmp_path):

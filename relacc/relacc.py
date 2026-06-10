@@ -1,5 +1,7 @@
 import math
 
+from scipy.stats import wasserstein_distance
+
 from relacc.dtw import (
     DEFAULT_WARPING_PENALTY,
     ddtw as derivative_dtw,
@@ -12,6 +14,9 @@ from relacc.geom.measure import Measure
 from relacc.geom.pointset import PointSet
 from relacc.geom.vector import Vector
 from relacc.gestures.ptaligntype import PtAlignType
+
+
+EPSILON = 1e-12
 
 
 def shapeError(gesture, summaryShape):
@@ -124,6 +129,188 @@ def localSpeedErrors(gesture, summaryShape):
     return errors
 
 
+def _chronologicalComparisonPoints(gesture, summaryShape):
+    return (
+        summaryShape.alignGesture(gesture, PtAlignType.CHRONOLOGICAL),
+        summaryShape.getPoints(),
+    )
+
+
+def _finiteMean(values, fallback=0.0):
+    finite_values = [value for value in values if math.isfinite(value)]
+    if len(finite_values) == 0:
+        return fallback
+    return mean(finite_values)
+
+
+def curvatureArray(points):
+    n = len(points)
+    curvatures = [0.0] * n
+    for i in range(1, n - 1):
+        prevPoint = points[i - 1]
+        currPoint = points[i]
+        nextPoint = points[i + 1]
+        if (
+            currPoint.StrokeID != prevPoint.StrokeID
+            or currPoint.StrokeID != nextPoint.StrokeID
+        ):
+            continue
+
+        localLength = Measure.distance(prevPoint, currPoint) + Measure.distance(
+            currPoint,
+            nextPoint,
+        )
+        if localLength <= EPSILON:
+            continue
+
+        angle = Measure.shortAngle(
+            Vector(prevPoint, currPoint),
+            Vector(currPoint, nextPoint),
+        )
+        curvatures[i] = angle / localLength
+    return curvatures
+
+
+def curvature(gesture, summaryShape):
+    gesturePts, summaryPts = _chronologicalComparisonPoints(gesture, summaryShape)
+    gestureCurvature = curvatureArray(gesturePts)
+    summaryCurvature = curvatureArray(summaryPts)
+    if len(gestureCurvature) == 0 or len(summaryCurvature) == 0:
+        return 0.0
+    return float(wasserstein_distance(summaryCurvature, gestureCurvature))
+
+
+def cornerSlowdownRatio(points):
+    curvatures = curvatureArray(points)
+    speeds = speedArray(points)
+    globalSpeeds = [
+        speed
+        for speed in speeds
+        if math.isfinite(speed) and speed > EPSILON
+    ]
+    if len(globalSpeeds) == 0:
+        return 1.0
+
+    cornerCurvatures = [
+        curvature
+        for curvature in curvatures
+        if math.isfinite(curvature) and curvature > EPSILON
+    ]
+    if len(cornerCurvatures) == 0:
+        return 1.0
+
+    threshold = sorted(cornerCurvatures)[int(0.75 * (len(cornerCurvatures) - 1))]
+    cornerSpeeds = [
+        speed
+        for curvature, speed in zip(curvatures, speeds)
+        if curvature >= threshold and math.isfinite(speed) and speed > EPSILON
+    ]
+    if len(cornerSpeeds) == 0:
+        return 1.0
+
+    return _finiteMean(cornerSpeeds) / _finiteMean(globalSpeeds)
+
+
+def cornerSlowdown(gesture, summaryShape):
+    gesturePts, summaryPts = _chronologicalComparisonPoints(gesture, summaryShape)
+    return abs(cornerSlowdownRatio(gesturePts) - cornerSlowdownRatio(summaryPts))
+
+
+def twoThirdsPowerLawR2Value(points):
+    curvatures = curvatureArray(points)
+    speeds = speedArray(points)
+    xs = []
+    ys = []
+    for curvature, speed in zip(curvatures, speeds):
+        if (
+            math.isfinite(curvature)
+            and math.isfinite(speed)
+            and curvature > EPSILON
+            and speed > EPSILON
+        ):
+            xs.append(math.log(curvature))
+            ys.append(math.log(speed))
+
+    if len(xs) < 2:
+        return 0.0
+
+    xMean = mean(xs)
+    yMean = mean(ys)
+    ssX = sum((value - xMean) * (value - xMean) for value in xs)
+    ssY = sum((value - yMean) * (value - yMean) for value in ys)
+    if ssX <= EPSILON or ssY <= EPSILON:
+        return 0.0
+
+    covariance = sum((x - xMean) * (y - yMean) for x, y in zip(xs, ys))
+    slope = covariance / ssX
+    intercept = yMean - slope * xMean
+    ssResidual = sum(
+        (y - (slope * x + intercept)) * (y - (slope * x + intercept))
+        for x, y in zip(xs, ys)
+    )
+    r2 = 1.0 - (ssResidual / ssY)
+    return min(1.0, max(0.0, r2))
+
+
+def twoThirdsPowerLawR2(gesture, summaryShape):
+    gesturePts, summaryPts = _chronologicalComparisonPoints(gesture, summaryShape)
+    return abs(
+        twoThirdsPowerLawR2Value(gesturePts)
+        - twoThirdsPowerLawR2Value(summaryPts)
+    )
+
+
+def _dftFrequencyEnergy(xs, ys, frequency):
+    realX = 0.0
+    imagX = 0.0
+    realY = 0.0
+    imagY = 0.0
+    n = len(xs)
+    for i in range(n):
+        angle = 2.0 * math.pi * frequency * i / n
+        cosine = math.cos(angle)
+        sine = math.sin(angle)
+        realX += xs[i] * cosine
+        imagX -= xs[i] * sine
+        realY += ys[i] * cosine
+        imagY -= ys[i] * sine
+    return realX * realX + imagX * imagX + realY * realY + imagY * imagY
+
+
+def highFrequencyRatioValue(points):
+    n = len(points)
+    if n < 4:
+        return 0.0
+
+    xMean = _finiteMean([point.X for point in points])
+    yMean = _finiteMean([point.Y for point in points])
+    xs = [point.X - xMean for point in points]
+    ys = [point.Y - yMean for point in points]
+    maxFrequency = n // 2
+    splitFrequency = max(1, maxFrequency // 2)
+    lowEnergy = 0.0
+    highEnergy = 0.0
+    for frequency in range(1, maxFrequency + 1):
+        energy = _dftFrequencyEnergy(xs, ys, frequency)
+        if frequency <= splitFrequency:
+            lowEnergy += energy
+        else:
+            highEnergy += energy
+
+    totalEnergy = lowEnergy + highEnergy
+    if totalEnergy <= EPSILON:
+        return 0.0
+    return highEnergy / totalEnergy
+
+
+def highFrequencyRatio(gesture, summaryShape):
+    gesturePts, summaryPts = _chronologicalComparisonPoints(gesture, summaryShape)
+    return abs(
+        highFrequencyRatioValue(gesturePts)
+        - highFrequencyRatioValue(summaryPts)
+    )
+
+
 def productionTime(gesture):
     points = gesture.points
     if len(points) <= 1:
@@ -140,7 +327,7 @@ def speedArray(points):
         index2 = min(i + r, n - 1)
         distance = PointSet.pathLength(points, index1, index2)
         time = points[index2].T - points[index1].T
-        if abs(time) < 1e-5:
+        if time <= 1e-5:
             v.append(0)
         else:
             v.append(distance / time)
@@ -149,6 +336,59 @@ def speedArray(points):
 
 def strokeError(gesture, summaryShape):
     return abs(numStrokes(gesture) - numStrokes(summaryShape))
+
+
+def strokeGroups(points):
+    if len(points) == 0:
+        return []
+
+    groups = [[points[0]]]
+    for point in points[1:]:
+        if point.StrokeID == groups[-1][-1].StrokeID:
+            groups[-1].append(point)
+        else:
+            groups.append([point])
+    return groups
+
+
+def strokeLengths(points):
+    return [PointSet.pathLength(stroke) for stroke in strokeGroups(points)]
+
+
+def strokeDurations(points):
+    durations = []
+    for stroke in strokeGroups(points):
+        times = [point.T for point in stroke]
+        durations.append(max(times) - min(times))
+    return durations
+
+
+def strokeLengthStdValue(points):
+    lengths = strokeLengths(points)
+    if len(lengths) < 2:
+        return 0.0
+    return stdev(lengths)
+
+
+def strokeLengthStd(gesture, summaryShape):
+    return abs(
+        strokeLengthStdValue(gesture.points)
+        - strokeLengthStdValue(summaryShape.points)
+    )
+
+
+def meanStrokeDurationValue(points):
+    durations = strokeDurations(points)
+    if len(durations) == 0:
+        return 0.0
+    return mean(durations)
+
+
+def meanStrokeDuration(gesture, summaryShape):
+    return abs(
+        meanStrokeDurationValue(gesture.points)
+        - meanStrokeDurationValue(summaryShape.points)
+    )
 
 
 def numStrokes(gesture):
@@ -291,9 +531,23 @@ time_variability = timeVariability
 velocity_error = velocityError
 velocity_variability = velocityVariability
 local_speed_errors = localSpeedErrors
+curvature_array = curvatureArray
+corner_slowdown_ratio = cornerSlowdownRatio
+corner_slowdown = cornerSlowdown
+two_thirds_power_law_r2_value = twoThirdsPowerLawR2Value
+two_thirds_power_law_r2 = twoThirdsPowerLawR2
+high_frequency_ratio_value = highFrequencyRatioValue
+high_frequency_ratio = highFrequencyRatio
 production_time = productionTime
 speed_array = speedArray
 stroke_error = strokeError
+stroke_groups = strokeGroups
+stroke_lengths = strokeLengths
+stroke_durations = strokeDurations
+stroke_length_std_value = strokeLengthStdValue
+stroke_length_std = strokeLengthStd
+mean_stroke_duration_value = meanStrokeDurationValue
+mean_stroke_duration = meanStrokeDuration
 num_strokes = numStrokes
 stroke_order_error = strokeOrderError
 dtw_distance = dtwDistance

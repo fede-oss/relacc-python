@@ -67,6 +67,8 @@ def test_main_pairwise_json_stdout_single_pair(tmp_path):
     assert payload["pairs"][0]["dtwWindow"] is None
     assert "shapeError" in payload["pairs"][0]
     assert "dtwDistance" in payload["pairs"][0]
+    assert "cornerSlowdown" in payload["pairs"][0]
+    assert "meanStrokeDuration" in payload["pairs"][0]
 
 
 def test_main_pairwise_json_stdout_with_exact_dtw(tmp_path):
@@ -184,6 +186,13 @@ def test_main_pairwise_csv_file_output_and_no_strict(tmp_path):
     assert out_csv.exists()
     content = out_csv.read_text(encoding="utf-8")
     assert content.splitlines()[0].startswith("pairKey,label,referenceFile")
+    raw_csv = out_csv.with_suffix(out_csv.suffix + ".raw-metrics.jsonl")
+    raw_rows = [
+        json.loads(line)
+        for line in raw_csv.read_text(encoding="utf-8").splitlines()
+    ]
+    assert raw_rows[0]["recordType"] == "rawMetricOutput"
+    assert raw_rows[0]["comparisonMode"] == "direct"
 
 
 def test_main_pairwise_summary_mode_json(tmp_path):

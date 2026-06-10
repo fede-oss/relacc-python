@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 import argparse
 import json
-import os
 
 from relacc.gestures.ptaligntype import PtAlignType
 from relacc.metrics import get_metric_names
+from relacc.pipeline._common import (
+    default_raw_output_path,
+    output_format,
+    write_jsonl_rows,
+)
 from relacc.pipeline.pairwise import (
     COMPARISON_MODES,
     DIRECT_MODE,
@@ -12,6 +16,16 @@ from relacc.pipeline.pairwise import (
     run_pairwise_comparison,
 )
 from relacc.utils.debug import Debug
+from relacc.utils.runlog import (
+    add_run_logging_arguments,
+    append_run_log,
+    build_run_metadata,
+    record_effective_config,
+    run_logged_experiment,
+    sidecar_paths,
+    verbosity_from_opt,
+    write_run_metadata,
+)
 
 
 def _int_cast(value):
@@ -35,20 +49,13 @@ def build_parser():
     parser.set_defaults(strict=True)
     parser.add_argument("-f", "--format")
     parser.add_argument("-o", "--output")
+    parser.add_argument("--raw-output")
     parser.add_argument("--round")
     parser.add_argument("--exact-dtw", action="store_true")
     parser.add_argument("--dtw-window")
-    parser.add_argument("-v", "--verbose", action="store_true")
+    add_run_logging_arguments(parser)
     parser.add_argument("-h", "--help", action="store_true")
     return parser
-
-
-def _get_format(output, requested_format):
-    if output:
-        ext = os.path.splitext(output)[1][1:].lower()
-        if ext:
-            return ext
-    return (requested_format or "json").lower()
 
 
 def _display_result(text, output, debug):
@@ -72,9 +79,15 @@ def main(argv=None):
         parser.print_help()
         raise ValueError("Please provide both reference and candidate inputs.")
 
-    debug = Debug({"verbose": bool(opt.verbose)})
+    paths = sidecar_paths(opt.output, opt.log_dir, stem="pairwise")
+    metadata = build_run_metadata(parser, opt, argv, "pairwise")
+    write_run_metadata(paths, metadata)
+    return run_logged_experiment(paths, lambda: _run_experiment(opt, paths, metadata))
 
-    fmt = _get_format(opt.output, opt.format)
+
+def _run_experiment(opt, paths=None, metadata=None):
+    debug = Debug({"verbose": verbosity_from_opt(opt)})
+    fmt = output_format(opt.output, opt.format)
     if fmt not in ["json", "csv"]:
         raise ValueError("Invalid output format (%s). Supported formats: json, csv." % fmt)
 
@@ -105,6 +118,28 @@ def main(argv=None):
         dtw_window=dtw_window,
         exact_dtw=bool(opt.exact_dtw),
     )
+    record_effective_config(
+        paths or {},
+        metadata,
+        {
+            "format": fmt,
+            "label": opt.label,
+            "rate": payload["metadata"]["rate"],
+            "alignment": alignment,
+            "summary": opt.summary,
+            "popular": bool(opt.popular),
+            "strict": bool(opt.strict),
+            "roundPrecision": round_precision,
+            "comparisonMode": opt.mode,
+            "metricNames": list(metric_names),
+            "dtwWindow": payload["metadata"]["dtwWindow"],
+            "exactDtw": bool(opt.exact_dtw),
+            "output": opt.output,
+            "reference": opt.reference,
+            "candidate": opt.candidate,
+            "verbosity": verbosity_from_opt(opt),
+        },
+    )
 
     if fmt == "json":
         result = json.dumps(payload)
@@ -112,6 +147,11 @@ def main(argv=None):
         result = format_pair_rows_csv(payload["pairs"], metric_names=metric_names)
 
     _display_result(result, opt.output, debug)
+    raw_output = opt.raw_output or default_raw_output_path(opt.output)
+    if raw_output:
+        write_jsonl_rows(raw_output, payload["rawMetricOutputs"])
+        debug.fmt("Raw metric outputs were saved in %s", raw_output)
+    append_run_log(paths or {}, "Output format: %s" % fmt)
 
     return 0
 

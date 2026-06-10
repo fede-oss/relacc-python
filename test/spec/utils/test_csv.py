@@ -6,16 +6,18 @@ from pathlib import Path
 
 import pytest
 
+from relacc.relacc import speedArray
 from relacc.utils.csv import CSVUtil
 
 
-def test_csv_parse_dedupe_and_nan(tmp_path):
+def test_csv_parse_ignores_duplicate_and_negative_timestamps(tmp_path):
     tmp_file = Path(tmp_path) / "gesture.csv"
     rows = [
         "stroke_id x y time is_writing",
         "0 10 20 0 1",
         "0 11 21 0 1",
         "1 12 22 -1 1",
+        "1 13 23 10 1",
     ]
     tmp_file.write_text("\n".join(rows), encoding="utf-8")
 
@@ -30,8 +32,8 @@ def test_csv_parse_dedupe_and_nan(tmp_path):
     assert len(points) == 2
     assert points[0].X == 10
     assert points[0].T == 0
-    assert points[1].X == 12
-    assert points[1].T != points[1].T
+    assert points[1].X == 13
+    assert points[1].T == 10
     assert points[1].StrokeID == 1
 
 
@@ -116,6 +118,42 @@ def test_csv_parse_gzip_tar_payload_with_csv_extension(tmp_path):
     assert points[0].StrokeID == 1
     assert points[1].T == 10.0
     assert points[2].StrokeID == 2
+
+
+def test_csv_parse_truncated_gzip_tar_when_first_csv_member_is_complete(tmp_path):
+    payload_file = Path(tmp_path) / "gesture.csv"
+    csv_rows = [
+        "stroke_id x y time is_writing",
+        "1 50 88 0 1",
+        "1 51 89 10 1",
+    ]
+    csv_bytes = "\n".join(csv_rows).encode("utf-8")
+
+    tar_buffer = io.BytesIO()
+    with tarfile.open(fileobj=tar_buffer, mode="w") as archive:
+        first = tarfile.TarInfo(name="inner/gesture.csv")
+        first.size = len(csv_bytes)
+        archive.addfile(first, io.BytesIO(csv_bytes))
+
+        padding = b"x" * 1_000_000
+        second = tarfile.TarInfo(name="inner/later.bin")
+        second.size = len(padding)
+        archive.addfile(second, io.BytesIO(padding))
+
+    truncated_gzip = gzip.compress(tar_buffer.getvalue())[:-8]
+    payload_file.write_bytes(truncated_gzip)
+
+    out = {}
+
+    def cb(points):
+        out["points"] = points
+
+    CSVUtil.readGesture(str(payload_file), cb)
+    points = out["points"]
+
+    assert len(points) == 2
+    assert points[0].X == 50.0
+    assert points[1].T == 10.0
 
 
 def test_csv_parse_gzip_tar_skips_non_csv_members(tmp_path):
@@ -274,9 +312,49 @@ def test_csv_comma_delimited_and_sparse_rows(tmp_path):
     assert points[1].X == 13.0
 
 
-def test_csv_empty_numeric_field_raises(tmp_path):
+def test_csv_ignores_malformed_gesture_rows(tmp_path):
     tmp_file = Path(tmp_path) / "empty-numeric.csv"
-    tmp_file.write_text("stroke_id,x,y,time,is_writing\n0,10,20,,1\n", encoding="utf-8")
+    rows = [
+        "stroke_id,x,y,time,is_writing",
+        "0,10,20,0,1",
+        "0,11,21,,1",
+        "0,not-x,22,10,1",
+        "bad-stroke,12,23,20,1",
+        "0,13,24,30,1",
+    ]
+    tmp_file.write_text("\n".join(rows), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="Empty numeric field"):
-        CSVUtil.readGesture(str(tmp_file), lambda _points: None)
+    out = {}
+
+    def cb(points):
+        out["points"] = points
+
+    CSVUtil.readGesture(str(tmp_file), cb)
+    points = out["points"]
+
+    assert len(points) == 2
+    assert [point.X for point in points] == [10.0, 13.0]
+    assert [point.T for point in points] == [0.0, 30.0]
+
+
+def test_csv_ignores_non_increasing_timestamps_to_prevent_negative_velocity(tmp_path):
+    tmp_file = Path(tmp_path) / "non-increasing.csv"
+    rows = [
+        "stroke_id,x,y,time,is_writing",
+        "0,0,0,0,1",
+        "0,10,0,10,1",
+        "0,20,0,5,1",
+        "0,30,0,20,1",
+    ]
+    tmp_file.write_text("\n".join(rows), encoding="utf-8")
+
+    out = {}
+
+    def cb(points):
+        out["points"] = points
+
+    CSVUtil.readGesture(str(tmp_file), cb)
+    points = out["points"]
+
+    assert [point.T for point in points] == [0.0, 10.0, 20.0]
+    assert all(speed >= 0 for speed in speedArray(points))

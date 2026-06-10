@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 import argparse
 import json
-import os
 
 from relacc.gestures.ptaligntype import PtAlignType
+from relacc.pipeline._common import (
+    default_raw_output_path,
+    output_format,
+    write_jsonl_rows,
+)
 from relacc.pipeline.distribution import (
     GROUP_BY_FILENAME_LABEL,
     GROUP_BY_MODES,
@@ -11,6 +15,16 @@ from relacc.pipeline.distribution import (
     run_distribution_comparison,
 )
 from relacc.utils.debug import Debug
+from relacc.utils.runlog import (
+    add_run_logging_arguments,
+    append_run_log,
+    build_run_metadata,
+    record_effective_config,
+    run_logged_experiment,
+    sidecar_paths,
+    verbosity_from_opt,
+    write_run_metadata,
+)
 
 
 def _int_cast(value):
@@ -22,28 +36,25 @@ def _int_cast(value):
 def build_parser():
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("reference", nargs="?")
-    parser.add_argument("candidate", nargs="?")
+    parser.add_argument("candidate", nargs="?", metavar="comparison")
     parser.add_argument("--group-by", default=GROUP_BY_FILENAME_LABEL, choices=GROUP_BY_MODES)
+    parser.add_argument("--reference-name", default="reference")
+    parser.add_argument("--comparison-name", default="comparison")
+    parser.add_argument("--legacy-column-names", action="store_true")
+    parser.add_argument("--legacy-json-fields", action="store_true")
     parser.add_argument("-r", "--rate")
     parser.add_argument("-a", "--alignment")
     parser.add_argument("-m", "--summary")
     parser.add_argument("-p", "--popular", action="store_true")
     parser.add_argument("-f", "--format")
     parser.add_argument("-o", "--output")
+    parser.add_argument("--raw-output")
     parser.add_argument("--round")
     parser.add_argument("--exact-dtw", action="store_true")
     parser.add_argument("--dtw-window")
-    parser.add_argument("-v", "--verbose", action="store_true")
+    add_run_logging_arguments(parser)
     parser.add_argument("-h", "--help", action="store_true")
     return parser
-
-
-def _get_format(output, requested_format):
-    if output:
-        ext = os.path.splitext(output)[1][1:].lower()
-        if ext:
-            return ext
-    return (requested_format or "json").lower()
 
 
 def _display_result(text, output, debug):
@@ -65,11 +76,17 @@ def main(argv=None):
 
     if not opt.reference or not opt.candidate:
         parser.print_help()
-        raise ValueError("Please provide both reference and candidate inputs.")
+        raise ValueError("Please provide both reference and comparison inputs.")
 
-    debug = Debug({"verbose": bool(opt.verbose)})
+    paths = sidecar_paths(opt.output, opt.log_dir, stem="distribution")
+    metadata = build_run_metadata(parser, opt, argv, "distribution")
+    write_run_metadata(paths, metadata)
+    return run_logged_experiment(paths, lambda: _run_experiment(opt, paths, metadata))
 
-    fmt = _get_format(opt.output, opt.format)
+
+def _run_experiment(opt, paths=None, metadata=None):
+    debug = Debug({"verbose": verbosity_from_opt(opt)})
+    fmt = output_format(opt.output, opt.format)
     if fmt not in ["json", "csv"]:
         raise ValueError("Invalid output format (%s). Supported formats: json, csv." % fmt)
 
@@ -94,14 +111,50 @@ def main(argv=None):
         group_by=opt.group_by,
         dtw_window=dtw_window,
         exact_dtw=bool(opt.exact_dtw),
+        reference_group_name=opt.reference_name,
+        comparison_group_name=opt.comparison_name,
+        include_legacy_fields=bool(opt.legacy_json_fields),
+    )
+    record_effective_config(
+        paths or {},
+        metadata,
+        {
+            "format": fmt,
+            "rate": payload["metadata"]["rate"],
+            "alignment": alignment,
+            "summary": opt.summary,
+            "popular": bool(opt.popular),
+            "roundPrecision": round_precision,
+            "groupBy": opt.group_by,
+            "dtwWindow": payload["metadata"]["dtwWindow"],
+            "exactDtw": bool(opt.exact_dtw),
+            "output": opt.output,
+            "reference": opt.reference,
+            "candidate": opt.candidate,
+            "verbosity": verbosity_from_opt(opt),
+        },
     )
 
     if fmt == "json":
         result = json.dumps(payload)
     else:
-        result = format_distribution_rows_csv(payload["results"])
+        result = format_distribution_rows_csv(
+            payload["results"],
+            legacy_column_names=bool(opt.legacy_column_names),
+        )
 
     _display_result(result, opt.output, debug)
+    raw_output = opt.raw_output or default_raw_output_path(opt.output)
+    if raw_output:
+        write_jsonl_rows(
+            raw_output,
+            [
+                *payload["rawMetricOutputs"],
+                *payload["rawDistributionOutputs"],
+            ],
+        )
+        debug.fmt("Raw distribution outputs were saved in %s", raw_output)
+    append_run_log(paths or {}, "Output format: %s" % fmt)
     return 0
 
 

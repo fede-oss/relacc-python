@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import math
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
@@ -13,6 +15,7 @@ from relacc.gestures.ptaligntype import PtAlignType
 from relacc.gestures.summarygesture import SummaryGesture
 from relacc.metrics import compute_metrics
 from relacc.utils.csv import CSVUtil
+from relacc.utils.json import JSONUtil
 from relacc.utils.math import MathUtil
 
 
@@ -40,6 +43,19 @@ def pair_key(relative_csv_path: str) -> str:
     return rel_path.with_suffix("").as_posix()
 
 
+def infer_label_from_filename(relative_path: str, label_kind: str = "gesture") -> str:
+    filename = relative_path.rsplit("/", 1)[-1]
+    stem = filename.rsplit(".", 1)[0]
+    parts = stem.split("-")
+    if len(parts) < 3 or not parts[1]:
+        raise ValueError(
+            "Cannot derive %s label from filename (%s). "
+            "Expected at least 3 '-' separated parts."
+            % (label_kind, relative_path)
+        )
+    return parts[1]
+
+
 def normalize_summary_shape(summary_shape: str | None):
     if summary_shape is None:
         return None
@@ -63,6 +79,28 @@ def read_points(csv_file: str):
     points = state.get("points")
     if not points:
         raise ValueError("No points parsed from CSV file: %s" % csv_file)
+    return points
+
+
+def read_gesture_points(file_path: str):
+    suffix = Path(file_path).suffix.lower()
+    state = {}
+
+    def _done(points):
+        state["points"] = points
+
+    if suffix == ".csv":
+        CSVUtil.readGesture(file_path, _done)
+    elif suffix == ".json":
+        JSONUtil.readGesture(file_path, _done)
+    else:
+        raise ValueError(
+            "Invalid input file format (%s). Supported formats: json, csv." % suffix
+        )
+
+    points = state.get("points")
+    if not points:
+        raise ValueError("No points parsed from gesture file: %s" % file_path)
     return points
 
 
@@ -105,6 +143,68 @@ def effective_dtw_window(
     if effective_rate <= DEFAULT_EXACT_RATE_THRESHOLD:
         return None
     return recommended_dtw_window(effective_rate)
+
+
+def output_format(output: str | None, requested_format: str | None, default: str = "json"):
+    if output:
+        ext = Path(output).suffix[1:].lower()
+        if ext:
+            return ext
+    return (requested_format or default).lower()
+
+
+def csv_escape(value) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    text = text.replace('"', '""')
+    if "," in text or '"' in text or "\n" in text:
+        return '"%s"' % text
+    return text
+
+
+def format_csv_rows(rows: Sequence[Dict[str, object]], columns: Sequence[str]) -> str:
+    lines = [",".join(columns)]
+    for row in rows:
+        lines.append(",".join(csv_escape(row.get(column, "")) for column in columns))
+    return "\n".join(lines)
+
+
+def jsonl_safe(value):
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: jsonl_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [jsonl_safe(item) for item in value]
+    return value
+
+
+def format_jsonl_rows(rows: Sequence[Dict[str, object]]) -> str:
+    return "\n".join(
+        json.dumps(jsonl_safe(row), sort_keys=True, allow_nan=False)
+        for row in rows
+    )
+
+
+def default_raw_output_path(output: str | None, suffix: str = "raw-metrics.jsonl") -> str | None:
+    if output is None:
+        return None
+
+    raw_suffix = "." + suffix.lstrip(".")
+    path = Path(output)
+    if path.suffix:
+        return str(path.with_suffix(path.suffix + raw_suffix))
+    return str(path.with_suffix(raw_suffix))
+
+
+def write_jsonl_rows(path: str | Path, rows: Sequence[Dict[str, object]]) -> None:
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    text = format_jsonl_rows(rows)
+    if text:
+        text += "\n"
+    output_path.write_text(text, encoding="utf-8")
 
 
 def compute_pair_metrics_from_points(

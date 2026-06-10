@@ -20,6 +20,16 @@ from relacc.utils.args import Args
 from relacc.utils.csv import CSVUtil
 from relacc.utils.debug import Debug
 from relacc.utils.math import MathUtil
+from relacc.utils.runlog import (
+    add_run_logging_arguments,
+    append_run_log,
+    build_run_metadata,
+    record_effective_config,
+    run_logged_experiment,
+    sidecar_paths,
+    verbosity_from_opt,
+    write_run_metadata,
+)
 
 
 def _bool_cast(value):
@@ -139,7 +149,7 @@ def build_parser():
     parser.add_argument("-c", "--color")
     parser.add_argument("-T", "--summary-thickness")
     parser.add_argument("-C", "--summary-color")
-    parser.add_argument("-v", "--verbose", action="store_true")
+    add_run_logging_arguments(parser)
     parser.add_argument("-h", "--help", action="store_true")
     parser.add_argument("files", nargs="*")
     return parser
@@ -155,7 +165,7 @@ def main(argv=None):
 
     args = vars(opt)
     argParser = Args(args)
-    debug = Debug({"verbose": bool(args.get("verbose"))})
+    debug = Debug({"verbose": verbosity_from_opt(opt)})
 
     defaults = {
         "label": None,
@@ -202,10 +212,10 @@ def main(argv=None):
         parser.print_help()
         raise ValueError("Please provide some gesture files as input.")
 
-    if not label:
-        label = os.path.basename(files[0]).split("-")[1]
-        defaults["label"] = label
-        debug.fmt("Notice: No gesture label provided, I'll assume that all samples are '%s'.", label)
+    paths = sidecar_paths(output, opt.log_dir, stem="canvas")
+    metadata = build_run_metadata(parser, opt, argv, "canvas")
+    metadata["resolvedDefaults"] = dict(defaults)
+    write_run_metadata(paths, metadata)
 
     maxStrokeCount = 1
 
@@ -239,33 +249,66 @@ def main(argv=None):
                 debug.fmt("Notice: Setting sampling rate to %s points per gesture.", smartRate)
                 rate = smartRate
                 defaults["rate"] = smartRate
+            record_effective_config(
+                paths,
+                metadata,
+                {
+                    "format": fmt,
+                    "label": label,
+                    "rate": rate,
+                    "alignment": alignmentType,
+                    "summary": summaryShape,
+                    "popular": popularShape,
+                    "size": imsize,
+                    "thickness": lineWidth,
+                    "color": lineColor,
+                    "summaryThickness": summaryWidth,
+                    "summaryColor": summaryColor,
+                    "output": output,
+                    "files": list(files),
+                    "verbosity": verbosity_from_opt(opt),
+                },
+            )
             evaluate()
 
-    if files[0] == "-":
-        pending = []
-        nfiles_local = 0
-        for line in sys.stdin:
-            line = line.strip()
-            if not line:
-                continue
-            strokes = json.loads(line)
-            pending.append(strokes)
-            nfiles_local += 1
+    def run_canvas():
+        nonlocal label, nfiles
+        if not label:
+            label = os.path.basename(files[0]).split("-")[1]
+            defaults["label"] = label
+            metadata["resolvedDefaults"] = dict(defaults)
+            debug.fmt(
+                "Notice: No gesture label provided, I'll assume that all samples are '%s'.",
+                label,
+            )
 
-        nfiles = nfiles_local
-        for strokes in pending:
-            _readJsonStrokes(strokes, doneParsing)
-    else:
-        for file in files:
-            ext = os.path.splitext(file)[1]
-            if ext == ".csv":
-                CSVUtil.readGesture(file, doneParsing)
-            elif ext == ".json":
-                _readJsonFile(file, doneParsing)
-            else:
-                debug.fmt("Unknown file extension: %s", ext)
+        if files[0] == "-":
+            pending = []
+            nfiles_local = 0
+            for line in sys.stdin:
+                line = line.strip()
+                if not line:
+                    continue
+                strokes = json.loads(line)
+                pending.append(strokes)
+                nfiles_local += 1
 
-    return 0
+            nfiles = nfiles_local
+            for strokes in pending:
+                _readJsonStrokes(strokes, doneParsing)
+        else:
+            for file in files:
+                ext = os.path.splitext(file)[1]
+                if ext == ".csv":
+                    CSVUtil.readGesture(file, doneParsing)
+                elif ext == ".json":
+                    _readJsonFile(file, doneParsing)
+                else:
+                    debug.fmt("Unknown file extension: %s", ext)
+        append_run_log(paths, "Output format: %s" % fmt)
+        return 0
+
+    return run_logged_experiment(paths, run_canvas)
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ This repository contains a Python port of the Gesture Relative Accuracy Toolkit 
 
 - Python 3.11+
 - `matplotlib` (for canvas rendering CLI)
-- `scipy` (for distribution-comparison metrics)
+- `scipy` (for distribution-comparison metrics and distribution-shape diagnostics)
 
 ## Installation
 
@@ -24,7 +24,7 @@ python3 -m pip install --break-system-packages -e .
 
 Both `relacc` and `relacc-canvas` work the same way conceptually:
 
-1. You pass **multiple CSV files** for the same gesture (e.g. 10 trials of an arrow gesture).
+1. You pass **multiple CSV or JSON files** for the same gesture (e.g. 10 trials of an arrow gesture).
 2. A single **summary gesture** (the reference) is computed from the whole collection.
 3. Every individual sample is measured against that reference, producing metrics per sample.
 
@@ -42,15 +42,21 @@ The metrics cover:
 | `timeVariability` | Consistency of per-point timing |
 | `velocityError` | Mean speed difference along the path |
 | `velocityVariability` | Consistency of speed deviation |
+| `cornerSlowdown` | Difference in corner-speed/global-speed slowdown ratio |
+| `twoThirdsPowerLawR2` | Difference in two-thirds power-law log-log fit quality (R2) |
+| `highFrequencyRatio` | Difference in high-frequency trajectory energy ratio |
+| `curvature` | Distribution distance between local curvature values |
 | `strokeError` | Difference in number of strokes |
 | `strokeOrderError` | Degree of stroke-order violation |
+| `strokeLengthStd` | Difference in variability of stroke lengths |
+| `meanStrokeDuration` | Difference in average per-stroke duration |
 | `dtwDistance` | Classic Dynamic Time Warping total alignment cost |
 | `ldtwDistance` | DTW normalized by warping-path length |
 | `ddtwDistance` | Derivative DTW, comparing local trajectory trends |
 | `wdtwDistance` | Weighted DTW, penalizing larger phase offsets |
 | `wddtwDistance` | Weighted derivative DTW |
 
-Lower values always mean closer to the reference. Passing a single CSV produces all zeros (reference = the file itself).
+Lower values always mean closer to the reference. The movement-feature metrics compute the feature on the sample and on the summary/reference, then report the absolute difference; `curvature` reports a Wasserstein distance between local curvature distributions. Passing a single CSV produces all zeros (reference = the file itself).
 
 The DTW-family metrics are computed on the chronological point sequences after the same resampling and translation steps used elsewhere in the toolkit.
 The Python API uses the exact DTW dynamic program, so runtime is quadratic in the resampled point count.
@@ -82,13 +88,22 @@ Use `-p` (`--popular`) to filter out gestures whose stroke count differs from th
 
 Computes metrics for each gesture relative to the summary and prints the results.
 
-**Per-gesture output** (default): one row per input file.
+**Per-gesture output** (default): one whitespace-separated row per input file.
+Use `-f json` for a structured JSON payload, `-f csv` for a flat comma-separated table, or `-f xml` for XML.
 
 ```bash
 relacc -s -r 32 -a 1 -m centroid -f json /path/to/*gesture_name*.csv
 
 # All arrow-fast trials for subject 01, one row per trial
 relacc datasets/becaptcha/1dollar/s01-arrow-fast-*.csv
+
+# Structured JSON output
+relacc -f json datasets/becaptcha/1dollar/s01-arrow-fast-*.csv
+
+# Save per-file rows as CSV
+relacc -m centroid -r 32 \
+  -o /tmp/arrow-fast-samples.csv \
+  datasets/becaptcha/1dollar/s01-arrow-fast-*.csv
 ```
 
 **Aggregate stats** (`-s`): one row per metric, summarising the whole collection (mean, median, sd, min, max).
@@ -129,12 +144,25 @@ relacc -s -m centroid -r 32 --exact-dtw -f json \
 | `-a, --alignment` | `0` | Point alignment: `0` = chronological, `1` = cloud-match (unordered) |
 | `-p, --popular` | off | Filter to most common stroke count before building summary |
 | `-s, --stats` | off | Output aggregate stats instead of per-file rows |
-| `-f, --format` | `json` | Output format: `json`, `csv`, `xml` |
+| `-f, --format` | per-file text, stats JSON | Output format: `json`, `csv`, `xml`, `text` |
 | `-o, --output` | *(stdout)* | Write output to file (format inferred from extension) |
+| `--round` | `3` | Decimal precision in output metrics |
 | `--dtw-window` | auto for larger rates | Optional Sakoe-Chiba band radius for faster approximate DTW runs |
 | `--exact-dtw` | off | Force exact DTW-family metrics even at larger resampling rates |
-| `-l, --label` | *(from filename)* | Gesture label — inferred from the second `-`-separated segment of the first filename if omitted |
+| `-l, --label` | *(from filename)* | Gesture label — inferred from the second `-`-separated segment of the first filename if omitted. Filenames that do not match the expected pattern fail with a clear error; pass `-l` to override inference. |
 | `-v, --verbose` | off | Debug logging |
+
+Python API:
+
+```python
+from relacc.pipeline.one_vs_many import run_one_vs_many_comparison
+
+payload = run_one_vs_many_comparison(
+    ["s01-arrow-01.csv", "s01-arrow-02.csv"],
+    summary_shape="centroid",
+    stats=True,
+)
+```
 
 ---
 
@@ -227,12 +255,13 @@ Key flags:
 
 `relacc-distribution` compares **metric distributions** instead of individual pairs.
 
-V1 workflow:
+Workflow:
 
 - Group samples by class.
-- Build a **human-human baseline** distribution inside each class from unordered reference-reference pairs.
-- Build a **generated-human** distribution inside each class from all reference-candidate pairs.
-- Compare the two scalar distributions for every gesture metric, then pool an overall summary across valid classes.
+- Build a **within-reference** distribution inside each class from unordered reference-reference pairs.
+- Build a **within-comparison** distribution inside each class from unordered comparison-comparison pairs.
+- Build a **between-groups** distribution inside each class from all reference-comparison pairs.
+- Compare within-reference against between-groups for distribution-distance metrics, and compare within-comparison against within-reference for variability ratios.
 
 Grouping modes:
 
@@ -244,12 +273,56 @@ Grouping modes:
 A class is considered valid when it has:
 
 - at least 2 reference CSVs
-- at least 1 candidate CSV
+- at least 1 comparison CSV
+
+Within-comparison variability requires at least 2 comparison CSVs in a class. If
+there is only one comparison sample, within-comparison summaries and ratios are
+blank/NaN for that class.
 
 Output shape:
 
 - JSON: `metadata` plus `results.perClass` and `results.overall`
 - CSV: one flattened row per `scope x gestureMetric`
+
+Each distribution row describes one gesture metric for either a class or the
+pooled overall scope. The row includes separate summaries for:
+
+- `withinReferenceStats`: reference-vs-reference distances
+- `withinComparisonStats`: comparison-vs-comparison distances
+- `betweenGroupsStats`: reference-vs-comparison distances
+
+Each summary includes these fields:
+
+| Field | What it means |
+|---|---|
+| `mean` | Average value; useful as the simplest center estimate |
+| `mdn` / `q50` | Median value; more robust to outliers than the mean |
+| `sd` | Standard deviation; typical spread around the mean |
+| `variance` | Squared spread; useful for comparing dispersion mathematically |
+| `min`, `max` | Smallest and largest finite values |
+| `q05`, `q25`, `q75`, `q95` | Quantiles for lower/upper tails and interquartile range |
+| `skewness` | Whether the distribution leans toward unusually high or low values |
+| `kurtosis` | Tail heaviness/outlier-proneness compared with a normal-like shape |
+| `normalityPValue` | Lightweight normality diagnostic when there are at least 8 values; blank/NaN for tiny or constant samples |
+| `n` | Number of finite values used in the summary |
+
+In CSV output these fields are prefixed with `withinReference`,
+`withinComparison`, or `betweenGroups`, for example `withinReferenceQ95`,
+`withinComparisonSkewness`, and `betweenGroupsKurtosis`. The fields are intended
+to support the report/histogram workflow: the mean and median show center,
+`sd`/`variance`/quantiles show spread and tails, and skewness/kurtosis help
+explain whether errors have asymmetric or outlier-heavy shapes.
+
+The ratio fields compare equivalent quantities:
+
+- `withinComparisonToReferenceMeanRatio`
+- `withinComparisonToReferenceMdnRatio`
+- `withinComparisonToReferenceSdRatio`
+
+These replace the older generated-vs-reference-summary ratio. For migration,
+CSV output can still use old `baseline*` and `candidate*` column names with
+`--legacy-column-names`, and JSON can include old aliases with
+`--legacy-json-fields`.
 
 Examples:
 
@@ -266,6 +339,10 @@ Key flags:
 | Flag | Default | Description |
 |---|---|---|
 | `--group-by` | `filename-label` | Class grouping mode: `filename-label` or `parent-dir` |
+| `--reference-name` | `reference` | Label stored in JSON metadata for the reference group |
+| `--comparison-name` | `comparison` | Label stored in JSON metadata for the comparison group |
+| `--legacy-column-names` | off | Emit old CSV names such as `baselineMean` and `candidateMean` |
+| `--legacy-json-fields` | off | Include old JSON aliases such as `baselineStats` and `candidateStats` |
 | `-m, --summary` | *(first reference gesture)* | Summary strategy reused from pairwise comparison |
 | `-p, --popular` | off | Filter to most common stroke count when building the per-reference summary |
 | `-r, --rate` | auto | Resampling rate; auto-estimated from reference samples only |
@@ -278,10 +355,46 @@ Key flags:
 
 Current distribution metrics:
 
-- `wassersteinDistance`
-- `energyDistance`
-- `ksStatistic`
-- `ksPValue`
+- `wassersteinDistance`: symmetric Wasserstein-1 distance between scalar empirical distributions
+- `earthMoverDistance`: symmetric Earth Mover Distance alias for Wasserstein-1 in 1D
+- `wassersteinDistanceP2`: symmetric Wasserstein-2 distance between scalar empirical distributions
+- `energyDistance`: symmetric energy distance
+- `ksStatistic`: symmetric Kolmogorov-Smirnov two-sample statistic
+- `ksPValue`: Kolmogorov-Smirnov two-sample test p-value
+- `klDivergenceReferenceToCandidate`: asymmetric binned KL divergence from the reference distribution to the comparison distribution
+- `klDivergenceCandidateToReference`: asymmetric binned KL divergence from the comparison distribution to the reference distribution
+- `jeffreysDivergence`: symmetric KL-family divergence formed by summing both KL directions
+- `jensenShannonDivergence`: symmetric, finite KL-family divergence against the average distribution
+- `totalVariationDistance`: symmetric half-L1 distance between binned probability distributions
+
+The KL-family metrics intentionally include both asymmetric directions because
+`reference -> comparison` and `comparison -> reference` answer different
+support/coverage questions. The JSON metadata includes each distribution
+metric's symmetry so downstream tools can label these interpretations.
+
+---
+
+### Raw distribution files for reports
+
+The reporting pipeline can export the unaggregated metric samples that sit
+under the histogram and distribution-summary workflow:
+
+- `raw_baseline_pairs.csv`: within-reference values. For each selected
+  dataset/class, every reference-reference pair is compared in both directions.
+- `raw_candidate_pairs.csv`: between-groups values. For each selected
+  dataset/class, every selected reference gesture is compared with every
+  selected comparison gesture.
+
+Both files are long-form CSVs with the same schema:
+
+For `R` selected reference gestures, `C` selected comparison gestures, and `M`
+gesture metrics, the baseline file has `R choose 2 * 2 * M` rows and the
+comparison file has `R * C * M` rows. To draw a histogram, filter each file by
+`datasetKey`, `classKey`, and `metric`, then plot the `value` column from the
+baseline file against the `value` column from the comparison file. The same value
+arrays can later be reused for means, medians, quantiles, skewness, kurtosis,
+Wasserstein/earth-mover distances, energy distance, KL-family divergences,
+total variation distance, and KS tests.
 
 ---
 

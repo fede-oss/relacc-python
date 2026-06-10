@@ -31,7 +31,7 @@ def test_main_distribution_help():
         text=True,
     )
     assert "reference" in res.stdout
-    assert "candidate" in res.stdout
+    assert "comparison" in res.stdout
 
 
 def test_main_distribution_json_stdout(tmp_path):
@@ -47,6 +47,10 @@ def test_main_distribution_json_stdout(tmp_path):
             str(ROOT / "main-distribution.py"),
             "-f",
             "json",
+            "--reference-name",
+            "children",
+            "--comparison-name",
+            "adults",
             str(reference_dir),
             str(candidate_dir),
         ],
@@ -58,8 +62,20 @@ def test_main_distribution_json_stdout(tmp_path):
 
     payload = json.loads(res.stdout)
     assert payload["metadata"]["comparisonMode"] == "distribution"
+    assert payload["metadata"]["referenceGroupName"] == "children"
+    assert payload["metadata"]["comparisonGroupName"] == "adults"
     assert payload["metadata"]["validClassCount"] == 1
     assert len(payload["results"]["overall"]) > 0
+    assert "withinReferenceStats" in payload["results"]["overall"][0]
+    assert "baselineStats" not in payload["results"]["overall"][0]
+    assert any(
+        row["gestureMetric"] == "cornerSlowdown"
+        for row in payload["results"]["overall"]
+    )
+    assert any(
+        row["gestureMetric"] == "meanStrokeDuration"
+        for row in payload["results"]["overall"]
+    )
 
 
 def test_main_distribution_csv_file_output_parent_dir_grouping(tmp_path):
@@ -90,7 +106,56 @@ def test_main_distribution_csv_file_output_parent_dir_grouping(tmp_path):
 
     assert out_csv.exists()
     content = out_csv.read_text(encoding="utf-8")
-    assert content.splitlines()[0].startswith("scope,classKey,gestureMetric")
+    header = content.splitlines()[0]
+    assert header.startswith("scope,classKey,gestureMetric")
+    assert "withinReferenceMean" in header
+    assert "withinComparisonToReferenceMeanRatio" in header
+    assert "baselineMean" not in header
+    raw_csv = out_csv.with_suffix(out_csv.suffix + ".raw-metrics.jsonl")
+    raw_rows = [
+        json.loads(line)
+        for line in raw_csv.read_text(encoding="utf-8").splitlines()
+    ]
+    assert {"rawMetricOutput", "rawDistributionOutput"}.issubset(
+        {row["recordType"] for row in raw_rows}
+    )
+    assert {
+        "withinReference",
+        "betweenGroups",
+    }.issubset({row.get("sampleKind") for row in raw_rows})
+
+
+def test_main_distribution_legacy_csv_names_are_opt_in(tmp_path):
+    reference_dir = tmp_path / "reference"
+    candidate_dir = tmp_path / "candidate"
+    _write_csv(reference_dir / "arrow" / "ref-a.csv", _sample_rows(0))
+    _write_csv(reference_dir / "arrow" / "ref-b.csv", _sample_rows(1))
+    _write_csv(candidate_dir / "arrow" / "cand-a.csv", _sample_rows(2))
+
+    out_csv = tmp_path / "legacy-distribution.csv"
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "main-distribution.py"),
+            "--group-by",
+            "parent-dir",
+            "--legacy-column-names",
+            "-o",
+            str(out_csv),
+            str(reference_dir),
+            str(candidate_dir),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    header = out_csv.read_text(encoding="utf-8").splitlines()[0]
+    assert "baselineMean" in header
+    assert "candidateMean" in header
+    assert "withinReferenceMean" not in header
 
 
 def test_main_distribution_invalid_format_fails(tmp_path):
