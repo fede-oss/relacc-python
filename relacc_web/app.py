@@ -84,7 +84,9 @@ def cached_report_chart(
     variant: str | None = None,
     class_key: str | None = Query(default=None, alias="class"),
     metric: str | None = None,
+    metrics: str | None = None,
     metric_family: str | None = None,
+    distribution_metric: str | None = None,
 ):
     report = get_report_cache(report_id)
     if report is None:
@@ -98,7 +100,9 @@ def cached_report_chart(
             "variant": variant,
             "classKey": class_key,
             "metric": metric,
+            "metrics": metrics,
             "metricFamily": metric_family,
+            "distributionMetric": distribution_metric,
         },
     )
     if payload is None:
@@ -151,6 +155,11 @@ def cached_report_overlay(
     summary: str | None = None,
     reference_color: str = "#0aa3a3",
     comparison_color: str = "#e53935",
+    summary_color: str = "#111514",
+    show_reference: bool = True,
+    show_comparison: bool = True,
+    show_summary: bool = True,
+    summary_source: str = "reference",
 ):
     report = get_report_cache(report_id)
     if report is None:
@@ -166,6 +175,11 @@ def cached_report_overlay(
         summary=summary,
         reference_color=reference_color,
         comparison_color=comparison_color,
+        summary_color=summary_color,
+        show_reference=show_reference,
+        show_comparison=show_comparison,
+        show_summary=show_summary,
+        summary_source=summary_source,
     )
     if svg is None:
         raise HTTPException(status_code=404, detail="Overlay not found.")
@@ -177,7 +191,7 @@ async def create_evaluation_job(
     background_tasks: BackgroundTasks,
     reference_zip: UploadFile = File(...),
     candidate_zip: UploadFile | None = File(default=None),
-    comparison_zips: list[UploadFile] | None = File(default=None),
+    comparison_zips: list[UploadFile] = File(default=[]),
     comparison_names: str = Form("[]"),
     config: str = Form("{}"),
 ):
@@ -193,7 +207,7 @@ async def create_evaluation_job(
         names = json.loads(comparison_names or "[]")
     except Exception:
         names = []
-    for index, upload in enumerate(comparison_zips or [], start=1):
+    for index, upload in enumerate(comparison_zips, start=1):
         name = names[index - 1] if index - 1 < len(names) else f"comparison-{index}"
         comparisons.append((str(name), await upload.read()))
     if not comparisons:

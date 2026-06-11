@@ -189,18 +189,36 @@ def _num(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
-def _matches(row: dict[str, Any], filters: dict[str, Any]) -> bool:
-    for key in ("source", "dataset", "classKey", "metric"):
+def _list_filter(filters: dict[str, Any], key: str) -> list[str]:
+    value = filters.get(key)
+    if value in (None, ""):
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return [str(item) for item in value if str(item)]
+    return [item.strip() for item in str(value).split(",") if item.strip()]
+
+
+def _matches(row: dict[str, Any], filters: dict[str, Any], *, metric: bool = True) -> bool:
+    for key in ("source", "dataset", "classKey"):
         value = filters.get(key)
         if value and str(row.get(key) or "") != str(value):
             return False
     variant = filters.get("variant")
     if variant and str(row.get("variant") or "root") != str(variant):
         return False
+    if metric:
+        metrics = set(_list_filter(filters, "metrics"))
+        if not metrics and filters.get("metric"):
+            metrics = {str(filters["metric"])}
+        if metrics and str(row.get("metric") or "") not in metrics:
+            return False
     return True
 
 
 def _metric_family(filters: dict[str, Any], manifest: dict[str, Any]) -> tuple[str, ...]:
+    metrics = _list_filter(filters, "metrics")
+    if metrics:
+        return tuple(metric for metric in metrics if metric in set(manifest.get("metricNames") or metrics))
     metric = filters.get("metric")
     if metric:
         return (str(metric),)
@@ -222,6 +240,34 @@ def _median(values: Iterable[float | None]) -> float | None:
     if not finite:
         return None
     return statistics.median(finite)
+
+
+def _weighted_accumulate(
+    groups: dict[Any, dict[str, float]],
+    key: Any,
+    value: float | None,
+    weight: float | None,
+):
+    if value is None:
+        return
+    weight = weight if weight and weight > 0 else 1.0
+    bucket = groups.setdefault(key, {"weighted": 0.0, "weight": 0.0, "count": 0.0})
+    bucket["weighted"] += value * weight
+    bucket["weight"] += weight
+    bucket["count"] += 1
+
+
+def _weighted_rows(groups: dict[Any, dict[str, float]]) -> dict[Any, float | None]:
+    return {
+        key: None if bucket["weight"] <= 0 else bucket["weighted"] / bucket["weight"]
+        for key, bucket in groups.items()
+    }
+
+
+def _distribution_score(row: dict[str, Any], filters: dict[str, Any]) -> float | None:
+    metric_name = str(filters.get("distributionMetric") or "normalizedWassersteinDistance")
+    score = _num(row.get(metric_name))
+    return score if score is not None else _num(row.get("wassersteinDistance"))
 
 
 def report_summary(report: ReportCache) -> dict[str, Any]:
@@ -288,59 +334,74 @@ def _ranking_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str, 
     if path is None:
         return {"kind": "ranking", "rows": []}
     metrics = set(_metric_family(filters, report.manifest))
-    grouped: dict[str, list[float]] = {}
+    grouped: dict[str, dict[str, float]] = {}
     for row in _read_rows(path):
-        if row.get("metric") not in metrics or not _matches(row, filters):
+        if row.get("metric") not in metrics or not _matches(row, filters, metric=False):
             continue
-        score = _num(row.get("normalizedWassersteinDistance")) or _num(row.get("wassersteinDistance"))
-        if score is None:
-            continue
-        grouped.setdefault(source_label(row), []).append(score)
+        score = _distribution_score(row, filters)
+        _weighted_accumulate(grouped, source_label(row), score, _num(row.get("betweenGroupsFiniteN")))
+    scores = _weighted_rows(grouped)
     rows = [
-        {"source": source, "score": _mean(values), "metricCount": len(values)}
-        for source, values in grouped.items()
+        {
+            "source": source,
+            "score": score,
+            "rowCount": int(grouped[source]["count"]),
+            "weight": int(grouped[source]["weight"]),
+        }
+        for source, score in scores.items()
     ]
     rows.sort(key=lambda row: (row["score"] is None, row["score"] or 0, row["source"]))
-    return {"kind": "ranking", "lowerIsBetter": True, "rows": _json_safe(rows[:20])}
+    return {
+        "kind": "ranking",
+        "metric": filters.get("distributionMetric") or "normalizedWassersteinDistance",
+        "gestureMetrics": sorted(metrics),
+        "lowerIsBetter": True,
+        "rows": _json_safe(rows[:20]),
+    }
 
 
 def _heatmap_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str, Any]:
     path = _csv_path(report, "distribution")
     if path is None:
         return {"kind": "heatmap", "sources": [], "metrics": [], "values": []}
-    metrics = list(_metric_family(filters, report.manifest))[:12]
+    metrics = list(_metric_family(filters, report.manifest))[:18]
     metric_set = set(metrics)
-    grouped: dict[tuple[str, str], list[float]] = {}
+    grouped: dict[tuple[str, str], dict[str, float]] = {}
     for row in _read_rows(path):
-        if row.get("metric") not in metric_set or not _matches(row, filters):
+        if row.get("metric") not in metric_set or not _matches(row, filters, metric=False):
             continue
-        score = _num(row.get("normalizedWassersteinDistance")) or _num(row.get("wassersteinDistance"))
-        if score is None:
-            continue
-        grouped.setdefault((source_label(row), row["metric"]), []).append(score)
+        score = _distribution_score(row, filters)
+        _weighted_accumulate(grouped, (source_label(row), row["metric"]), score, _num(row.get("betweenGroupsFiniteN")))
 
     sources = sorted({source for source, _ in grouped})
-    raw_values = {(source, metric): _mean(values) for (source, metric), values in grouped.items()}
+    raw_values = _weighted_rows(grouped)
     metric_values = [value for value in raw_values.values() if value is not None]
-    center = _mean(metric_values) or 0.0
-    spread = statistics.pstdev(metric_values) if len(metric_values) > 1 else 1.0
-    spread = spread or 1.0
+    min_value = min(metric_values) if metric_values else 0.0
+    max_value = max(metric_values) if metric_values else 1.0
     values = []
     for source_index, source in enumerate(sources):
         for metric_index, metric in enumerate(metrics):
             raw = raw_values.get((source, metric))
-            z_score = None if raw is None else (raw - center) / spread
             values.append(
                 {
                     "source": source,
                     "metric": metric,
                     "sourceIndex": source_index,
                     "metricIndex": metric_index,
-                    "value": z_score,
+                    "value": raw,
                     "raw": raw,
+                    "rowCount": int(grouped.get((source, metric), {}).get("count", 0)),
                 }
             )
-    return {"kind": "heatmap", "sources": sources, "metrics": metrics, "values": _json_safe(values)}
+    return {
+        "kind": "heatmap",
+        "metric": filters.get("distributionMetric") or "normalizedWassersteinDistance",
+        "sources": sources,
+        "metrics": metrics,
+        "min": min_value,
+        "max": max_value,
+        "values": _json_safe(values),
+    }
 
 
 def _scatter_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str, Any]:
@@ -348,67 +409,206 @@ def _scatter_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str, 
     generated_path = _csv_path(report, "stats")
     if baseline_path is None or generated_path is None:
         return {"kind": "scatter", "points": []}
-    metrics = set(_metric_family(filters, report.manifest))
-    baseline: dict[tuple[str, str], float] = {}
+    selected_metrics = list(_metric_family(filters, report.manifest))
+    metric = selected_metrics[0] if selected_metrics else "shapeError"
+    baseline: dict[tuple[str, str], dict[str, float | None]] = {}
     for row in _read_rows(baseline_path):
-        if row.get("metric") not in metrics:
+        if row.get("metric") != metric or not _matches(row, {**filters, "source": ""}, metric=False):
             continue
         key = (str(row.get("dataset")), str(row.get("classKey")), str(row.get("metric")))
-        baseline[key] = _num(row.get("mdn")) or 0.0
+        value = _num(row.get("mean"))
+        if value is not None:
+            baseline[key] = {"mean": value, "mdn": _num(row.get("mdn"))}
 
     points = []
     for row in _read_rows(generated_path):
-        if row.get("metric") not in metrics or not _matches(row, filters):
+        if row.get("metric") != metric or not _matches(row, filters, metric=False):
             continue
         key = (str(row.get("dataset")), str(row.get("classKey")), str(row.get("metric")))
-        human = baseline.get(key)
-        generated = _num(row.get("mdn"))
+        human_stats = baseline.get(key)
+        human = human_stats.get("mean") if human_stats else None
+        generated = _num(row.get("mean"))
         if human is None or generated is None:
             continue
+        generated_median = _num(row.get("mdn"))
         points.append(
             {
                 "source": source_label(row),
                 "dataset": row.get("dataset"),
                 "classKey": row.get("classKey"),
                 "metric": row.get("metric"),
-                "humanMedian": human,
-                "generatedMedian": generated,
+                "humanMean": human,
+                "generatedMean": generated,
+                "humanMedian": human_stats.get("mdn"),
+                "generatedMedian": generated_median,
+                "n": _num(row.get("finiteN")) or _num(row.get("n")),
                 "ratio": None if human == 0 else generated / human,
             }
         )
-        if len(points) >= 1200:
+        if len(points) >= 1800:
             break
-    return {"kind": "scatter", "points": _json_safe(points)}
+    return {"kind": "scatter", "metric": metric, "points": _json_safe(points)}
+
+
+def _pairwise_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str, Any]:
+    baseline_path = _csv_path(report, "baseline_stats")
+    generated_path = _csv_path(report, "stats")
+    if baseline_path is None or generated_path is None:
+        return {"kind": "pairwise", "rows": []}
+    metrics = set(_metric_family(filters, report.manifest))
+    baseline_groups: dict[str, dict[str, float]] = {}
+    generated_groups: dict[tuple[str, str], dict[str, float]] = {}
+    for row in _read_rows(baseline_path):
+        if row.get("metric") not in metrics or not _matches(row, {**filters, "source": ""}, metric=False):
+            continue
+        _weighted_accumulate(baseline_groups, row["metric"], _num(row.get("mean")), _num(row.get("finiteN")))
+    baseline_means = _weighted_rows(baseline_groups)
+    for row in _read_rows(generated_path):
+        if row.get("metric") not in metrics or not _matches(row, filters, metric=False):
+            continue
+        _weighted_accumulate(
+            generated_groups,
+            (source_label(row), row["metric"]),
+            _num(row.get("mean")),
+            _num(row.get("finiteN")),
+        )
+    generated_means = _weighted_rows(generated_groups)
+    rows = []
+    for (source, metric), generated in generated_means.items():
+        human = baseline_means.get(metric)
+        rows.append(
+            {
+                "source": source,
+                "metric": metric,
+                "humanMean": human,
+                "candidateMean": generated,
+                "ratio": None if not human else generated / human if generated is not None else None,
+                "classCount": int(generated_groups[(source, metric)]["count"]),
+                "n": int(generated_groups[(source, metric)]["weight"]),
+            }
+        )
+    rows.sort(key=lambda row: (row["metric"], row["source"]))
+    return {"kind": "pairwise", "rows": _json_safe(rows)}
 
 
 def _distribution_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str, Any]:
     path = _csv_path(report, "distribution")
     if path is None:
         return {"kind": "distribution", "rows": []}
-    metric = filters.get("metric") or "shapeError"
-    rows = []
+    metrics = set(_metric_family(filters, report.manifest))
+    grouped: dict[tuple[str, str], dict[str, dict[str, float]]] = {}
     for row in _read_rows(path):
-        if row.get("metric") != metric or not _matches(row, filters):
+        if row.get("metric") not in metrics or not _matches(row, filters, metric=False):
             continue
+        key = (source_label(row), row["metric"])
+        bucket = grouped.setdefault(key, {})
+        for field, weight_field in (
+            ("withinReferenceMean", "withinReferenceFiniteN"),
+            ("withinComparisonMean", "withinComparisonFiniteN"),
+            ("betweenGroupsMean", "betweenGroupsFiniteN"),
+            ("withinComparisonToReferenceMeanRatio", "withinComparisonFiniteN"),
+            ("normalizedWassersteinDistance", "betweenGroupsFiniteN"),
+            ("wassersteinDistance", "betweenGroupsFiniteN"),
+            ("energyDistance", "betweenGroupsFiniteN"),
+            ("ksStatistic", "betweenGroupsFiniteN"),
+        ):
+            _weighted_accumulate(bucket, field, _num(row.get(field)), _num(row.get(weight_field)))
+    means = {key: _weighted_rows(bucket) for key, bucket in grouped.items()}
+    rows = []
+    for (source, metric), values in means.items():
         rows.append(
             {
-                "source": source_label(row),
-                "dataset": row.get("dataset"),
-                "classKey": row.get("classKey"),
-                "withinReferenceMean": _num(row.get("withinReferenceMean")),
-                "withinComparisonMean": _num(row.get("withinComparisonMean")),
-                "betweenGroupsMean": _num(row.get("betweenGroupsMean")),
-                "withinReferenceQ25": _num(row.get("withinReferenceQ25")),
-                "withinReferenceQ75": _num(row.get("withinReferenceQ75")),
-                "betweenGroupsQ25": _num(row.get("betweenGroupsQ25")),
-                "betweenGroupsQ75": _num(row.get("betweenGroupsQ75")),
-                "ratio": _num(row.get("withinComparisonToReferenceMeanRatio")),
-                "wasserstein": _num(row.get("wassersteinDistance")),
+                "source": source,
+                "metric": metric,
+                "withinReferenceMean": values.get("withinReferenceMean"),
+                "withinComparisonMean": values.get("withinComparisonMean"),
+                "betweenGroupsMean": values.get("betweenGroupsMean"),
+                "ratio": values.get("withinComparisonToReferenceMeanRatio"),
+                "normalizedWassersteinDistance": values.get("normalizedWassersteinDistance"),
+                "wassersteinDistance": values.get("wassersteinDistance"),
+                "energyDistance": values.get("energyDistance"),
+                "ksStatistic": values.get("ksStatistic"),
+                "rowCount": int(grouped[(source, metric)].get("withinReferenceMean", {}).get("count", 0)),
             }
         )
-        if len(rows) >= 500:
-            break
-    return {"kind": "distribution", "metric": metric, "rows": _json_safe(rows)}
+    rows.sort(key=lambda row: (row["metric"], row["source"]))
+    return {"kind": "distribution", "gestureMetrics": sorted(metrics), "rows": _json_safe(rows)}
+
+
+def _histogram_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str, Any]:
+    metric = (list(_metric_family(filters, report.manifest)) or ["shapeError"])[0]
+    dataset = filters.get("dataset")
+    class_key = filters.get("classKey")
+    source = filters.get("source")
+    if not dataset or not class_key:
+        return {"kind": "histogram", "metric": metric, "series": []}
+
+    values_by_series: dict[str, list[float]] = {
+        "within reference": [],
+        "within comparison": [],
+        "between groups": [],
+    }
+    record_sets = [
+        ("within_reference", "within reference", False),
+        ("within_comparison", "within comparison", True),
+        ("between_groups", "between groups", True),
+    ]
+    for record_set, label, match_source in record_sets:
+        path = _csv_path(report, record_set)
+        if path is None:
+            continue
+        for row in _read_rows(path):
+            if row.get("dataset") != dataset or row.get("classKey") != class_key:
+                continue
+            if filters.get("variant") and str(row.get("variant") or "root") != str(filters["variant"]):
+                continue
+            if match_source and source and source_label(row) != source:
+                continue
+            value = _num(row.get(metric))
+            if value is not None:
+                values_by_series[label].append(value)
+            if len(values_by_series[label]) >= 12000:
+                break
+
+    finite_values = [value for values in values_by_series.values() for value in values]
+    if not finite_values:
+        return {"kind": "histogram", "metric": metric, "series": []}
+    lo = min(finite_values)
+    hi = max(finite_values)
+    if lo == hi:
+        hi = lo + 1
+    bin_count = min(30, max(8, int(math.sqrt(len(finite_values)))))
+    width = (hi - lo) / bin_count
+    bins = [lo + width * index for index in range(bin_count + 1)]
+    series = []
+    for label, values in values_by_series.items():
+        counts = [0] * bin_count
+        for value in values:
+            index = min(bin_count - 1, max(0, int((value - lo) / width)))
+            counts[index] += 1
+        series.append(
+            {
+                "name": label,
+                "n": len(values),
+                "mean": _mean(values),
+                "bins": [
+                    {
+                        "x0": bins[index],
+                        "x1": bins[index + 1],
+                        "count": counts[index],
+                    }
+                    for index in range(bin_count)
+                ],
+            }
+        )
+    return {
+        "kind": "histogram",
+        "metric": metric,
+        "dataset": dataset,
+        "classKey": class_key,
+        "source": source,
+        "series": _json_safe(series),
+    }
 
 
 def report_chart_payload(report: ReportCache, chart_kind: str, filters: dict[str, Any]) -> dict[str, Any] | None:
@@ -418,8 +618,12 @@ def report_chart_payload(report: ReportCache, chart_kind: str, filters: dict[str
         return _heatmap_payload(report, filters)
     if chart_kind == "scatter":
         return _scatter_payload(report, filters)
+    if chart_kind == "pairwise":
+        return _pairwise_payload(report, filters)
     if chart_kind == "distribution":
         return _distribution_payload(report, filters)
+    if chart_kind == "histogram":
+        return _histogram_payload(report, filters)
     return None
 
 
@@ -508,6 +712,11 @@ def report_overlay_svg(
     summary: str | None,
     reference_color: str,
     comparison_color: str,
+    summary_color: str = "#111514",
+    show_reference: bool = True,
+    show_comparison: bool = True,
+    show_summary: bool = True,
+    summary_source: str = "reference",
 ) -> str | None:
     class_dir = _class_dir(report, source, dataset, variant, class_key)
     if class_dir is None:
@@ -519,15 +728,40 @@ def report_overlay_svg(
     if not reference_files and not candidate_files:
         return None
     chosen_summary = summary or str(report.manifest.get("summary") or "medoid")
+    groups: list[OverlayGroup] = []
+    needs_reference_for_summary = show_summary and summary_source in {"reference", "human", ""}
+    if show_reference or needs_reference_for_summary:
+        groups.append(
+            OverlayGroup(
+                "Reference",
+                reference_files,
+                reference_color,
+                width=1.35 if show_reference else 0.01,
+                alpha=0.48 if show_reference else 0.0,
+                limit=sample_count,
+            )
+        )
+    if show_comparison or (show_summary and summary_source == "comparison"):
+        groups.append(
+            OverlayGroup(
+                "Comparison",
+                candidate_files,
+                comparison_color,
+                width=1.65 if show_comparison else 0.01,
+                alpha=0.62 if show_comparison else 0.0,
+                limit=sample_count,
+            )
+        )
+    if not groups:
+        return None
     return render_overlay_svg(
-        [
-            OverlayGroup("Reference", reference_files, reference_color, width=1.35, alpha=0.48, limit=sample_count),
-            OverlayGroup("Comparison", candidate_files, comparison_color, width=1.65, alpha=0.62, limit=sample_count),
-        ],
+        groups,
         label=class_key,
         rate=int(report.manifest.get("rate") or 24),
         alignment_type=int(report.manifest.get("alignment") or 0),
         summary_shape=chosen_summary,
         popular_shape=bool(report.manifest.get("popular")),
-        include_reference_summary=True,
+        include_reference_summary=show_summary,
+        summary_source="comparison" if summary_source == "comparison" else "all" if summary_source == "all" else "reference",
+        summary_color=summary_color,
     )

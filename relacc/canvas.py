@@ -111,11 +111,15 @@ def render_overlay_svg(
     popular_shape: bool = False,
     canvas_size: int = 640,
     include_reference_summary: bool = True,
+    summary_source: str = "reference",
+    summary_color: str = "#111514",
 ) -> str:
     """Render reference/candidate gesture groups as an SVG overlay."""
     all_points = []
     reference_points = []
+    summary_points = []
     max_stroke_count = 1
+    normalized_summary_source = (summary_source or "reference").strip().lower()
 
     for group_index, group in enumerate(groups):
         selected_files = list(group.files)[: group.limit]
@@ -127,6 +131,14 @@ def render_overlay_svg(
             all_points.append((group, points))
             if group_index == 0:
                 reference_points.append(points)
+            group_name = group.name.strip().lower()
+            if normalized_summary_source == "all":
+                summary_points.append(points)
+            elif normalized_summary_source in group_name:
+                summary_points.append(points)
+
+    if not summary_points and normalized_summary_source == "reference":
+        summary_points = reference_points
 
     if rate is None:
         rate = max(24, MathUtil.factorial(max_stroke_count))
@@ -146,8 +158,8 @@ def render_overlay_svg(
         aligned = summary.alignGesture(gesture, alignment_type) if summary else points
         _draw_gesture(ax, aligned, canvas_size, group.width, group.color, group.alpha)
 
-    if include_reference_summary and summary_shape and reference_points:
-        reference_gestures = [Gesture(points, label, rate) for points in reference_points]
+    if include_reference_summary and summary_shape and summary_points:
+        reference_gestures = [Gesture(points, label, rate) for points in summary_points]
         reference_summary = SummaryGesture(
             reference_gestures,
             alignment_type,
@@ -159,7 +171,7 @@ def render_overlay_svg(
             reference_summary.getPoints(),
             canvas_size,
             3.0,
-            "#111514",
+            summary_color,
             0.92,
         )
 
