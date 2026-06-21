@@ -510,6 +510,7 @@ def format_pair_rows_csv(
         "referenceCount",
         "rate",
         "alignment",
+        "alignmentName",
         "summary",
         "popular",
         "dtwWindow",

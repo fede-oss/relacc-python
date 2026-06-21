@@ -3,6 +3,7 @@ import json
 from fastapi.testclient import TestClient
 
 from relacc_web.app import app
+from relacc_web.service import JOBS
 from test.spec.relacc_web.test_service import _sample, _zip_bytes
 
 
@@ -34,6 +35,7 @@ def test_jobs_endpoint_accepts_repeated_comparison_zips():
 
 def test_jobs_endpoint_rejects_invalid_alignment_before_creating_job():
     client = TestClient(app)
+    jobs_before = set(JOBS)
     reference = _zip_bytes({"ref.csv": _sample(0)})
     candidate = _zip_bytes({"cand.csv": _sample(1)})
 
@@ -48,3 +50,4 @@ def test_jobs_endpoint_rejects_invalid_alignment_before_creating_job():
 
     assert response.status_code == 400
     assert "alignment" in response.json()["detail"].lower()
+    assert set(JOBS) == jobs_before

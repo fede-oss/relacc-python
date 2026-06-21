@@ -54,7 +54,7 @@ def test_alignment_normalization(value, expected):
     assert PtAlignType.normalize(value) == expected
 
 
-@pytest.mark.parametrize("value", [-1, 2, "other", True, False])
+@pytest.mark.parametrize("value", [-1, 2, 0.0, 1.0, "other", True, False, None])
 def test_alignment_normalization_rejects_invalid_values(value):
     with pytest.raises(ValueError, match="alignment"):
         PtAlignType.normalize(value)

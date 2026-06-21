@@ -55,6 +55,7 @@ RAW_COMPARISON_COLUMNS = (
     "value",
     "rate",
     "alignment",
+    "alignmentName",
     "summary",
     "popular",
     "dtwWindow",

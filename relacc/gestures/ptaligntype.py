@@ -18,7 +18,7 @@ class PtAlignType:
             if value in aliases:
                 return aliases[value]
             raise ValueError(cls._error(value))
-        if value in (cls.CHRONOLOGICAL, cls.CLOUD_MATCH):
+        if type(value) is int and value in (cls.CHRONOLOGICAL, cls.CLOUD_MATCH):
             return value
         raise ValueError(cls._error(value))
 

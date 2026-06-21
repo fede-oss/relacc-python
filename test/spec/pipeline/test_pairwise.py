@@ -463,6 +463,7 @@ def test_format_pair_rows_csv_with_escaping_and_missing_values():
         "referenceCount": 1,
         "rate": 24,
         "alignment": 1,
+        "alignmentName": "cloud-match",
         "summary": None,
         "popular": False,
     }
@@ -471,6 +472,8 @@ def test_format_pair_rows_csv_with_escaping_and_missing_values():
     output = Pairwise.format_pair_rows_csv([row])
     lines = output.splitlines()
     assert lines[0].startswith("pairKey,label,referenceFile")
+    assert ",alignment,alignmentName,summary," in lines[0]
+    assert ",1,cloud-match,," in lines[1]
     assert '"label,with,comma"' in lines[1]
     assert '"ref""x.csv"' in lines[1]
     assert ",," in lines[1]

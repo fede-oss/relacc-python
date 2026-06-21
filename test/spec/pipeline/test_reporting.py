@@ -1,3 +1,4 @@
+import csv
 from pathlib import Path
 
 import pytest
@@ -446,6 +447,12 @@ def test_export_raw_comparison_tables_writes_sampled_and_full_outputs(
     ).read_text(encoding="utf-8").splitlines()[0] == ",".join(
         Reporting.RAW_COMPARISON_COLUMNS
     )
+    with (sampled_output_dir / "raw_baseline_pairs.csv").open(
+        encoding="utf-8", newline=""
+    ) as handle:
+        exported_rows = list(csv.DictReader(handle))
+    assert exported_rows[0]["alignment"] == "0"
+    assert exported_rows[0]["alignmentName"] == "chronological"
 
     full_payload = Reporting.export_raw_comparison_tables(
         str(reference_dir),
