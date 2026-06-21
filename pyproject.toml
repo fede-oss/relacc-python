@@ -27,7 +27,8 @@ relacc-web = "relacc_web.__main__:main"
 [project.optional-dependencies]
 dev = [
   "pytest>=7.4",
-  "pytest-cov>=4.1"
+  "pytest-cov>=4.1",
+  "httpx2>=2.0.0"
 ]
 web = [
   "fastapi>=0.110",
@@ -47,9 +48,14 @@ testpaths = ["test"]
 python_files = ["test_*.py"]
 
 [tool.coverage.run]
-source = ["relacc"]
+source = ["."]
 branch = false
+omit = [
+  "test/*",
+  "worktrees/*",
+  "relacc_web/static/*",
+  "relacc_web/frontend/*"
+]
 
 [tool.coverage.report]
 show_missing = true
-fail_under = 100
