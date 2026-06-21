@@ -395,6 +395,8 @@ def test_build_raw_comparison_tables_preserves_pair_directions(monkeypatch):
     assert candidate_rows[0]["candidateSourceRole"] == "candidate"
     assert payload["metadata"]["baselineRowCount"] == 2
     assert payload["metadata"]["candidateRowCount"] == 2
+    assert payload["metadata"]["alignmentName"] == "chronological"
+    assert baseline_rows[0]["alignmentName"] == "chronological"
 
 
 def test_export_raw_comparison_tables_writes_sampled_and_full_outputs(

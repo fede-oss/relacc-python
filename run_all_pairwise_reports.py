@@ -77,6 +77,7 @@ PAIRWISE_COLUMNS = (
     "rate",
     "requestedRate",
     "alignment",
+    "alignmentName",
     "summary",
     "popular",
     "dtwWindow",
@@ -98,6 +99,7 @@ BASELINE_COLUMNS = (
     "rate",
     "requestedRate",
     "alignment",
+    "alignmentName",
     "summary",
     "popular",
     "dtwWindow",
@@ -490,6 +492,7 @@ def _raw_metric_outputs_from_values(
         "rate": row.get("rate"),
         "requestedRate": row.get("requestedRate"),
         "alignment": row.get("alignment"),
+        "alignmentName": row.get("alignmentName"),
         "summary": row.get("summary"),
         "popular": row.get("popular"),
         "dtwWindow": row.get("dtwWindow"),
@@ -1195,6 +1198,7 @@ def write_combined_report_exports(
                 "rate": manifest["rate"],
                 "roundPrecision": manifest["roundPrecision"],
                 "alignment": manifest["alignment"],
+                "alignmentName": manifest["alignmentName"],
                 "summary": manifest["summary"],
                 "popular": manifest["popular"],
                 "exactDtw": manifest["exactDtw"],
@@ -1356,6 +1360,7 @@ def _compare_class(
             "rate": effective_rate,
             "requestedRate": rate,
             "alignment": alignment,
+            "alignmentName": PtAlignType.name(alignment),
             "summary": summary_shape,
             "popular": bool(popular),
             "dtwWindow": selected_dtw_window,
@@ -1423,6 +1428,7 @@ def _compare_class(
             "rate": effective_rate,
             "requestedRate": rate,
             "alignment": alignment,
+            "alignmentName": PtAlignType.name(alignment),
             "summary": summary_shape,
             "popular": bool(popular),
             "dtwWindow": selected_dtw_window,
@@ -1473,6 +1479,7 @@ def _compare_class(
         "rate": effective_rate,
         "requestedRate": rate,
         "alignment": alignment,
+        "alignmentName": PtAlignType.name(alignment),
         "summary": summary_shape,
         "popular": bool(popular),
         "roundPrecision": round_precision,
@@ -1589,6 +1596,7 @@ def _compare_direct_distribution_pairs_class(
             "rate": effective_rate,
             "requestedRate": rate,
             "alignment": alignment,
+            "alignmentName": PtAlignType.name(alignment),
             "summary": summary_shape,
             "popular": bool(popular),
             "dtwWindow": selected_dtw_window,
@@ -1639,6 +1647,7 @@ def _compare_direct_distribution_pairs_class(
                 "rate": effective_rate,
                 "requestedRate": rate,
                 "alignment": alignment,
+                "alignmentName": PtAlignType.name(alignment),
                 "summary": summary_shape,
                 "popular": bool(popular),
                 "dtwWindow": selected_dtw_window,
@@ -1689,6 +1698,7 @@ def _compare_direct_distribution_pairs_class(
         "rate": effective_rate,
         "requestedRate": rate,
         "alignment": alignment,
+        "alignmentName": PtAlignType.name(alignment),
         "summary": summary_shape,
         "popular": bool(popular),
         "roundPrecision": round_precision,
@@ -1765,6 +1775,7 @@ def _compare_human_baseline_class(
             "rate": effective_rate,
             "requestedRate": rate,
             "alignment": alignment,
+            "alignmentName": PtAlignType.name(alignment),
             "summary": summary_shape,
             "popular": bool(popular),
             "dtwWindow": selected_dtw_window,
@@ -1804,6 +1815,7 @@ def _compare_human_baseline_class(
         "rate": effective_rate,
         "requestedRate": rate,
         "alignment": alignment,
+        "alignmentName": PtAlignType.name(alignment),
         "summary": summary_shape,
         "popular": bool(popular),
         "roundPrecision": round_precision,
@@ -1876,6 +1888,7 @@ def _build_parser():
     parser.add_argument("--round", default="3", help="Decimal precision for metrics.")
     parser.add_argument(
         "--alignment",
+        type=PtAlignType.normalize,
         default=str(PtAlignType.CHRONOLOGICAL),
         help="Alignment mode value accepted by the existing pipelines.",
     )
@@ -1958,7 +1971,7 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
 
     rate = _int_cast(opt.rate)
     round_precision = _int_cast(opt.round)
-    alignment = _int_cast(opt.alignment)
+    alignment = PtAlignType.normalize(opt.alignment)
     dtw_window = _int_cast(opt.dtw_window)
     summary_shape = normalize_summary_shape(opt.summary)
     group_by = _normalize_group_by(opt.group_by)
@@ -1995,6 +2008,7 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
             "rate": rate,
             "roundPrecision": round_precision,
             "alignment": alignment,
+            "alignmentName": PtAlignType.name(alignment),
             "summary": summary_shape,
             "popular": bool(opt.popular),
             "exactDtw": bool(opt.exact_dtw),
@@ -2021,6 +2035,7 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
         "rate": rate,
         "roundPrecision": round_precision,
         "alignment": alignment,
+        "alignmentName": PtAlignType.name(alignment),
         "summary": summary_shape,
         "popular": bool(opt.popular),
         "exactDtw": bool(opt.exact_dtw),

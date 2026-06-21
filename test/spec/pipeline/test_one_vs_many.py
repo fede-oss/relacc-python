@@ -43,12 +43,15 @@ def test_run_one_vs_many_comparison_outputs_samples_and_stats(tmp_path):
     assert payload["metadata"]["summary"] == "centroid"
     assert payload["metadata"]["rate"] == 5
     assert payload["metadata"]["dtwWindow"] == 2
+    assert payload["metadata"]["alignment"] == 0
+    assert payload["metadata"]["alignmentName"] == "chronological"
     assert len(payload["samples"]) == 2
     assert payload["samples"][0]["file"] == "s1-arrow-t1"
     assert set(payload["results"].keys()) == set(METRIC_NAMES)
     assert len(payload["rawMetricOutputs"]) == 2 * len(METRIC_NAMES)
     assert payload["rawMetricOutputs"][0]["recordType"] == "rawMetricOutput"
     assert payload["rawMetricOutputs"][0]["comparisonMode"] == "one-vs-many"
+    assert payload["rawMetricOutputs"][0]["alignmentName"] == "chronological"
 
 
 def test_run_one_vs_many_stats_aggregate_raw_values_before_rounding(monkeypatch, tmp_path):

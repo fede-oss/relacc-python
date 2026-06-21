@@ -139,7 +139,7 @@ def build_parser():
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("-l", "--label")
     parser.add_argument("-r", "--rate")
-    parser.add_argument("-a", "--alignment")
+    parser.add_argument("-a", "--alignment", type=PtAlignType.normalize)
     parser.add_argument("-m", "--summary")
     parser.add_argument("-p", "--popular", action="store_true")
     parser.add_argument("-o", "--output")
@@ -196,7 +196,9 @@ def main(argv=None):
     )
 
     imsize = defaults["size"] = argParser.get("size", 500, _int_cast)
-    alignmentType = defaults["alignment"] = argParser.get("alignment", defaults["alignment"], _int_cast)
+    alignmentType = defaults["alignment"] = PtAlignType.normalize(
+        argParser.get("alignment", defaults["alignment"])
+    )
     summaryShape = defaults["summary"] = argParser.get("summary", defaults["summary"])
     popularShape = defaults["popular"] = argParser.get("popular", defaults["popular"], _bool_cast)
     lineWidth = defaults["thickness"] = argParser.get("thickness", defaults["thickness"], _int_cast)
@@ -257,6 +259,7 @@ def main(argv=None):
                     "label": label,
                     "rate": rate,
                     "alignment": alignmentType,
+                    "alignmentName": PtAlignType.name(alignmentType),
                     "summary": summaryShape,
                     "popular": popularShape,
                     "size": imsize,

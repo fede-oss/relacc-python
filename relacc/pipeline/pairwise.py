@@ -195,6 +195,7 @@ def compare_pair(
     exact_dtw: bool = False,
     return_raw: bool = False,
 ):
+    alignment_type = PtAlignType.normalize(alignment_type)
     reference_points = _read_points(pair.reference_file)
     candidate_points = _read_points(pair.candidate_file)
 
@@ -231,6 +232,7 @@ def compare_pair(
         "referenceCount": 1,
         "rate": effective_rate,
         "alignment": alignment_type,
+        "alignmentName": PtAlignType.name(alignment_type),
         "summary": summary_shape,
         "popular": bool(popular_shape),
         "dtwWindow": selected_dtw_window,
@@ -252,6 +254,7 @@ def compare_pair(
             "rate": effective_rate,
             "requestedRate": rate,
             "alignment": alignment_type,
+            "alignmentName": PtAlignType.name(alignment_type),
             "summary": summary_shape,
             "popular": bool(popular_shape),
             "dtwWindow": selected_dtw_window,
@@ -286,6 +289,7 @@ def compare_against_reference_summary(
     dtw_window: int | None = None,
     exact_dtw: bool = False,
 ):
+    alignment_type = PtAlignType.normalize(alignment_type)
     reference_root = Path(reference_input)
     candidate_root = Path(candidate_input)
 
@@ -346,6 +350,7 @@ def compare_against_reference_summary(
             "referenceCount": len(reference_entries),
             "rate": effective_rate,
             "alignment": alignment_type,
+            "alignmentName": PtAlignType.name(alignment_type),
             "summary": summary_shape,
             "popular": bool(popular_shape),
             "dtwWindow": selected_dtw_window,
@@ -369,6 +374,7 @@ def compare_against_reference_summary(
                     "rate": effective_rate,
                     "requestedRate": rate,
                     "alignment": alignment_type,
+                    "alignmentName": PtAlignType.name(alignment_type),
                     "summary": summary_shape,
                     "popular": bool(popular_shape),
                     "dtwWindow": selected_dtw_window,
@@ -394,6 +400,7 @@ def run_pairwise_comparison(
     dtw_window: int | None = None,
     exact_dtw: bool = False,
 ):
+    alignment_type = PtAlignType.normalize(alignment_type)
     summary_shape = _normalize_summary_shape(summary_shape)
     mode = _normalize_mode(comparison_mode)
     selected_metric_names = tuple(metric_names or METRIC_NAMES)
@@ -473,6 +480,7 @@ def run_pairwise_comparison(
             "missingInReference": missing_in_reference,
             "strict": bool(strict),
             "alignment": alignment_type,
+            "alignmentName": PtAlignType.name(alignment_type),
             "summary": summary_shape,
             "popular": bool(popular_shape),
             "rate": rate,

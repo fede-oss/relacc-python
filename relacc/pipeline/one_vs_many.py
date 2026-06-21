@@ -109,6 +109,7 @@ def run_one_vs_many_comparison(
     dtw_window: int | None = None,
     exact_dtw: bool = False,
 ):
+    alignment_type = PtAlignType.normalize(alignment_type)
     if dtw_window is not None and exact_dtw:
         raise ValueError("--dtw-window cannot be combined with --exact-dtw.")
 
@@ -157,6 +158,7 @@ def run_one_vs_many_comparison(
                     "rate": effective_rate,
                     "requestedRate": rate,
                     "alignment": alignment_type,
+                    "alignmentName": PtAlignType.name(alignment_type),
                     "summary": summary_shape,
                     "popular": bool(popular_shape),
                     "dtwWindow": selected_dtw_window,
@@ -178,6 +180,7 @@ def run_one_vs_many_comparison(
             "label": selected_label,
             "rate": effective_rate,
             "alignment": alignment_type,
+            "alignmentName": PtAlignType.name(alignment_type),
             "summary": summary_shape,
             "popular": bool(popular_shape),
             "dtwWindow": selected_dtw_window,
@@ -198,6 +201,7 @@ def run_one_vs_many_comparison(
             "rate": effective_rate,
             "requestedRate": rate,
             "alignment": alignment_type,
+            "alignmentName": PtAlignType.name(alignment_type),
             "summary": summary_shape,
             "popular": bool(popular_shape),
             "stats": bool(stats),
@@ -218,6 +222,7 @@ def legacy_args_from_metadata(payload: Dict[str, object], output=None, fmt: str 
         "label": metadata["label"],
         "rate": metadata["rate"],
         "alignment": metadata["alignment"],
+        "alignmentName": metadata["alignmentName"],
         "summary": metadata["summary"],
         "popular": metadata["popular"],
         "stats": metadata["stats"],

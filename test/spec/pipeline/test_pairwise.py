@@ -5,6 +5,11 @@ import pytest
 from relacc.pipeline import pairwise as Pairwise
 
 
+def test_pairwise_public_boundary_rejects_invalid_alignment():
+    with pytest.raises(ValueError, match="Invalid alignment"):
+        Pairwise.run_pairwise_comparison("unused", "unused", alignment_type=2)
+
+
 def _write_csv(path: Path, rows):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(rows), encoding="utf-8")
