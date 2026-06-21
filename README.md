@@ -444,8 +444,6 @@ COVERAGE_FILE=/tmp/relacc.coverage PYTHONDONTWRITEBYTECODE=1 python3 -m coverage
 COVERAGE_FILE=/tmp/relacc.coverage python3 -m coverage report --show-missing
 ```
 
-Coverage is diagnostic evidence. Realistic regression tests, rather than a
-percentage threshold, are the merge gate.
 
 ## Gestures CSV format
 
