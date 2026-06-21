@@ -17,6 +17,10 @@ raton-class-overlay.png
 raton-sample-canvas.png
 raw-export-smoke/
 evaluation-plots/
+evaluation-plots-detailed*/
+evaluation-plots-*/
+**/evaluation-plots*/
+
 report-output/
 report-output-eval-*/
 report-output-16-samples-only/
