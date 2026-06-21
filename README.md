@@ -460,6 +460,12 @@ Where:
 - `time`: absolute or relative timestamp (milliseconds)
 - `is_writing`: pen down/up flag
 
+Nonnegative repeated timestamps are retained because multiple spatial events can share
+a device clock tick. Rows with strictly decreasing or negative timestamps, malformed
+values, or non-finite numeric values are ignored; decreasing timestamps are not
+repaired. Reports generated before v1.2.0 may have discarded valid points from
+coarse-clock devices and should be regenerated.
+
 Expected filename pattern:
 `subject_name-gesture_name-trial_number.csv`
 

@@ -56,7 +56,7 @@ class CSVUtil:
                 if not all(math.isfinite(value) for value in (x, y, time)) or time < 0:
                     continue
 
-                if myTime is not None and time <= myTime:
+                if myTime is not None and time < myTime:
                     continue
 
                 points.append(Point(x, y, time, sid))
