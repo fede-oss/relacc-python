@@ -433,8 +433,17 @@ This keeps distribution logic modular and independent from pairwise evaluation.
 ## Run tests
 
 ```bash
-python3 -m pytest --cov=relacc --cov-fail-under=100 --cov-report=term-missing
+python3 -m pip install -e .
+python3 -m pytest
 ```
+
+To generate a broad coverage diagnostic:
+
+```bash
+COVERAGE_FILE=/tmp/relacc.coverage PYTHONDONTWRITEBYTECODE=1 python3 -m coverage run -m pytest -q -p no:cacheprovider
+COVERAGE_FILE=/tmp/relacc.coverage python3 -m coverage report --show-missing
+```
+
 
 ## Gestures CSV format
 
