@@ -17,14 +17,20 @@ class JSONUtil:
 
         for sid, stroke in enumerate(strokes):
             for pt in stroke:
-                x = pt[0]
-                y = pt[1]
-                time = pt[2]
-                if time >= 0:
-                    if time != myTime:
-                        points.append(Point(x, y, time, sid))
-                    myTime = time
-                else:
-                    points.append(Point(x, y, math.nan, sid))
+                try:
+                    x = float(pt[0])
+                    y = float(pt[1])
+                    time = float(pt[2])
+                except (TypeError, ValueError, OverflowError, IndexError):
+                    continue
+
+                if not all(math.isfinite(value) for value in (x, y, time)) or time < 0:
+                    continue
+
+                if myTime is not None and time < myTime:
+                    continue
+
+                points.append(Point(x, y, time, sid))
+                myTime = time
 
         callback(points)

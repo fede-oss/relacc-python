@@ -57,14 +57,6 @@ The metrics cover:
 | `wddtwDistance` | Weighted derivative DTW |
 
 Lower values always mean closer to the reference. The movement-feature metrics compute the feature on the sample and on the summary/reference, then report the absolute difference; `curvature` reports a Wasserstein distance between local curvature distributions. Passing a single CSV produces all zeros (reference = the file itself).
-
-Shape, bending, timing, and velocity comparisons honor the selected point alignment. The DTW-family metrics always use chronological point sequences after the same resampling and translation steps used elsewhere in the toolkit, even when cloud matching is selected for the other metrics.
-The Python API uses the exact DTW dynamic program, so runtime is quadratic in the resampled point count.
-For the weighted variants, the logistic phase-penalty slope defaults to `0.25` (`penalty_g`) and can be overridden from the Python API when stricter or looser off-diagonal penalties are needed.
-On the CLI, the DTW-family metrics are included by default. Smaller resampling rates stay exact; larger resampling rates automatically switch to a Sakoe-Chiba-style band for faster approximate runs. Use `--exact-dtw` to force exact DTW, or `--dtw-window N` to choose your own window radius.
-
-Result metadata stores both the canonical numeric `alignment` and its `alignmentName` (`chronological` or `cloud-match`). Results created before version 1.2.0 recorded ambiguous alignment integers and should be regenerated before scientific comparison.
-
 ---
 
 ## The Summary Gesture (`-m`)
