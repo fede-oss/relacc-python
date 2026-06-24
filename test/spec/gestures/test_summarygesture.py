@@ -33,6 +33,53 @@ def test_summarygesture_custom_alignment():
     assert summary.alignmentType == PtAlignType.CLOUD_MATCH
 
 
+def test_public_alignment_values_are_canonical():
+    assert PtAlignType.CHRONOLOGICAL == 0
+    assert PtAlignType.CLOUD_MATCH == 1
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (0, 0),
+        ("0", 0),
+        ("chronological", 0),
+        (1, 1),
+        ("1", 1),
+        ("cloud", 1),
+        ("cloud-match", 1),
+    ],
+)
+def test_alignment_normalization(value, expected):
+    assert PtAlignType.normalize(value) == expected
+
+
+@pytest.mark.parametrize("value", [-1, 2, 0.0, 1.0, "other", True, False, None])
+def test_alignment_normalization_rejects_invalid_values(value):
+    with pytest.raises(ValueError, match="alignment"):
+        PtAlignType.normalize(value)
+
+
+def test_aligngesture_uses_stored_alignment_and_allows_override(monkeypatch):
+    _, collection = _collection()
+    summary = SummaryGesture(collection, "cloud")
+    calls = []
+
+    def match(reference, points):
+        calls.append((reference, points))
+        return list(reversed(range(len(points))))
+
+    monkeypatch.setattr("relacc.gestures.summarygesture.PDollarAlt.match", match)
+    implicit = summary.alignGesture(collection[1])
+    explicit_chronological = summary.alignGesture(collection[1], "chronological")
+    explicit_cloud = summary.alignGesture(collection[1], 1)
+
+    assert len(calls) == 2
+    assert [point.X for point in implicit] == [2, 0, -2]
+    assert [point.X for point in explicit_chronological] == [-2, 0, 2]
+    assert [point.X for point in explicit_cloud] == [2, 0, -2]
+
+
 def test_summarygesture_centroid_mode():
     _, collection = _collection()
     summary = SummaryGesture(collection, PtAlignType.CHRONOLOGICAL, "centroid")

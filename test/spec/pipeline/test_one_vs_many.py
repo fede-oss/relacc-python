@@ -43,12 +43,15 @@ def test_run_one_vs_many_comparison_outputs_samples_and_stats(tmp_path):
     assert payload["metadata"]["summary"] == "centroid"
     assert payload["metadata"]["rate"] == 5
     assert payload["metadata"]["dtwWindow"] == 2
+    assert payload["metadata"]["alignment"] == 0
+    assert payload["metadata"]["alignmentName"] == "chronological"
     assert len(payload["samples"]) == 2
     assert payload["samples"][0]["file"] == "s1-arrow-t1"
     assert set(payload["results"].keys()) == set(METRIC_NAMES)
     assert len(payload["rawMetricOutputs"]) == 2 * len(METRIC_NAMES)
     assert payload["rawMetricOutputs"][0]["recordType"] == "rawMetricOutput"
     assert payload["rawMetricOutputs"][0]["comparisonMode"] == "one-vs-many"
+    assert payload["rawMetricOutputs"][0]["alignmentName"] == "chronological"
 
 
 def test_run_one_vs_many_stats_aggregate_raw_values_before_rounding(monkeypatch, tmp_path):
@@ -156,6 +159,8 @@ def test_one_vs_many_formatters_are_json_safe_and_csv_consistent(tmp_path):
 
     csv_output = OneVsMany.format_one_vs_many_result(payload, "csv")
     assert csv_output.splitlines()[0].startswith("file,inputFile,label,rate")
+    assert ",alignment,alignmentName,summary," in csv_output.splitlines()[0]
+    assert ",0,chronological,," in csv_output.splitlines()[1]
 
     stats_payload = OneVsMany.run_one_vs_many_comparison([str(f1)], stats=True)
     stats_csv = OneVsMany.format_one_vs_many_result(stats_payload, "csv")
@@ -193,6 +198,7 @@ def test_one_vs_many_text_xml_and_legacy_metadata_formatters(tmp_path):
     )
     assert "<args" in sample_xml
     assert "<sample " in sample_xml
+    assert 'alignment="0" alignmentName="chronological"' in sample_xml
 
     non_finite_payload = {
         **payload,

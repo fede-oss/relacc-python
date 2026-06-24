@@ -5,6 +5,11 @@ import pytest
 from relacc.pipeline import pairwise as Pairwise
 
 
+def test_pairwise_public_boundary_rejects_invalid_alignment():
+    with pytest.raises(ValueError, match="Invalid alignment"):
+        Pairwise.run_pairwise_comparison("unused", "unused", alignment_type=2)
+
+
 def _write_csv(path: Path, rows):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(rows), encoding="utf-8")
@@ -458,6 +463,7 @@ def test_format_pair_rows_csv_with_escaping_and_missing_values():
         "referenceCount": 1,
         "rate": 24,
         "alignment": 1,
+        "alignmentName": "cloud-match",
         "summary": None,
         "popular": False,
     }
@@ -466,6 +472,8 @@ def test_format_pair_rows_csv_with_escaping_and_missing_values():
     output = Pairwise.format_pair_rows_csv([row])
     lines = output.splitlines()
     assert lines[0].startswith("pairKey,label,referenceFile")
+    assert ",alignment,alignmentName,summary," in lines[0]
+    assert ",1,cloud-match,," in lines[1]
     assert '"label,with,comma"' in lines[1]
     assert '"ref""x.csv"' in lines[1]
     assert ",," in lines[1]

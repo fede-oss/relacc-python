@@ -72,7 +72,10 @@ class SummaryGesture(Gesture):
                 raise ValueError("Gesture names cannot be different.")
 
         self.refGesture = refg
-        self.alignmentType = alignmentType or PtAlignType.CHRONOLOGICAL
+        selected_alignment = (
+            PtAlignType.CHRONOLOGICAL if alignmentType is None else alignmentType
+        )
+        self.alignmentType = PtAlignType.normalize(selected_alignment)
 
         popularStrokeNum = 0
         if usePopularStrokeNum:
@@ -124,6 +127,9 @@ class SummaryGesture(Gesture):
 
     def alignGesture(self, gesture, alignmentType=None):
         points = getPointsForAlignment(gesture)
+        if alignmentType is None:
+            alignmentType = self.alignmentType
+        alignmentType = PtAlignType.normalize(alignmentType)
         if alignmentType == PtAlignType.CHRONOLOGICAL:
             return points
 

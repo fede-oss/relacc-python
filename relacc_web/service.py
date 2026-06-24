@@ -15,6 +15,7 @@ from typing import Any
 
 from relacc.canvas import OverlayGroup, render_overlay_svg
 from relacc.metrics import METRIC_NAMES
+from relacc.gestures.ptaligntype import PtAlignType
 from relacc.pipeline.distribution import (
     GROUP_BY_FILENAME_LABEL,
     GROUP_BY_PARENT_DIR,
@@ -65,6 +66,8 @@ def _json_safe(value):
 
 def parse_config(config_text: str | None) -> EvaluationConfig:
     raw = json.loads(config_text or "{}")
+    if not isinstance(raw, dict):
+        raise ValueError("Configuration must be a JSON object.")
 
     def as_optional_int(key):
         value = raw.get(key)
@@ -83,7 +86,9 @@ def parse_config(config_text: str | None) -> EvaluationConfig:
     return EvaluationConfig(
         mode=mode,
         summary=summary,
-        alignment=int(raw.get("alignment") or 0),
+        alignment=PtAlignType.normalize(
+            raw.get("alignment", PtAlignType.CHRONOLOGICAL)
+        ),
         popular=bool(raw.get("popular", False)),
         strict=bool(raw.get("strict", True)),
         rate=as_optional_int("rate"),
@@ -429,6 +434,11 @@ def public_job(job: dict[str, Any]):
         for key, value in job.items()
         if key not in {"workdir", "referenceDir", "candidateDir", "candidateDirs"}
     }
+    if "config" in safe:
+        safe["config"] = {
+            **safe["config"],
+            "alignmentName": PtAlignType.name(safe["config"]["alignment"]),
+        }
     return _json_safe(safe)
 
 
@@ -505,6 +515,8 @@ def run_job(job_id: str):
             result = {
                 "metadata": {
                     "comparisonMode": config.mode,
+                    "alignment": config.alignment,
+                    "alignmentName": PtAlignType.name(config.alignment),
                     "comparisonGroups": list(candidate_dirs.keys()),
                     "pairCount": len(pair_rows),
                     "runSeconds": round(time.time() - start, 3),

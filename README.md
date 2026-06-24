@@ -57,7 +57,6 @@ The metrics cover:
 | `wddtwDistance` | Weighted derivative DTW |
 
 Lower values always mean closer to the reference. The movement-feature metrics compute the feature on the sample and on the summary/reference, then report the absolute difference; `curvature` reports a Wasserstein distance between local curvature distributions. Passing a single CSV produces all zeros (reference = the file itself).
-
 ---
 
 ## The Summary Gesture (`-m`)
@@ -136,7 +135,7 @@ relacc -s -m centroid -r 32 --exact-dtw -f json \
 |---|---|---|
 | `-m, --summary` | *(first file)* | Summary strategy: `centroid`, `medoid`, `kcentroid`, `kmedoid` |
 | `-r, --rate` | auto | Resampling rate (points per gesture). Auto-estimated from stroke count if omitted |
-| `-a, --alignment` | `0` | Point alignment: `0` = chronological, `1` = cloud-match (unordered) |
+| `-a, --alignment` | `0` | Point alignment: `0` or `chronological`; `1`, `cloud`, or `cloud-match` (unordered) |
 | `-p, --popular` | off | Filter to most common stroke count before building summary |
 | `-s, --stats` | off | Output aggregate stats instead of per-file rows |
 | `-f, --format` | per-file text, stats JSON | Output format: `json`, `csv`, `xml`, `text` |
@@ -237,7 +236,7 @@ Key flags:
 | `-p, --popular` | off | Filter to most common stroke count when building summary |
 | `--strict / --no-strict` | strict | Only used by `direct` mode for directory matching |
 | `-r, --rate` | auto | Resampling rate (auto-estimated when omitted) |
-| `-a, --alignment` | `0` | Point alignment: `0` chronological, `1` cloud-match |
+| `-a, --alignment` | `0` | Point alignment: `0` or `chronological`; `1`, `cloud`, or `cloud-match` |
 | `--round` | `3` | Decimal precision in output metrics |
 | `-f, --format` | `json` | Output format: `json`, `csv` |
 | `-o, --output` | *(stdout)* | Write output to file |
@@ -341,7 +340,7 @@ Key flags:
 | `-m, --summary` | *(first reference gesture)* | Summary strategy reused from pairwise comparison |
 | `-p, --popular` | off | Filter to most common stroke count when building the per-reference summary |
 | `-r, --rate` | auto | Resampling rate; auto-estimated from reference samples only |
-| `-a, --alignment` | `0` | Point alignment: `0` chronological, `1` cloud-match |
+| `-a, --alignment` | `0` | Point alignment: `0` or `chronological`; `1`, `cloud`, or `cloud-match` |
 | `--round` | `3` | Decimal precision in output metrics |
 | `-f, --format` | `json` | Output format: `json`, `csv` |
 | `-o, --output` | *(stdout)* | Write output to file |

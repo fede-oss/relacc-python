@@ -55,6 +55,7 @@ RAW_COMPARISON_COLUMNS = (
     "value",
     "rate",
     "alignment",
+    "alignmentName",
     "summary",
     "popular",
     "dtwWindow",
@@ -134,6 +135,7 @@ def _raw_metric_rows(
             "value": value,
             "rate": effective_rate,
             "alignment": alignment_type,
+            "alignmentName": PtAlignType.name(alignment_type),
             "summary": summary_shape,
             "popular": bool(popular_shape),
             "dtwWindow": selected_dtw_window,
@@ -165,6 +167,7 @@ def build_raw_comparison_tables(
     reports, and use full mode only when a large raw dump is intentional.
     """
 
+    alignment_type = PtAlignType.normalize(alignment_type)
     normalized_summary = normalize_summary_shape(summary_shape)
     selected_metric_names = tuple(metric_names or METRIC_NAMES)
     baseline_rows: List[Dict[str, object]] = []
@@ -268,6 +271,7 @@ def build_raw_comparison_tables(
             "candidateRowCount": len(candidate_rows),
             "rate": rate,
             "alignment": alignment_type,
+            "alignmentName": PtAlignType.name(alignment_type),
             "summary": normalized_summary,
             "popular": bool(popular_shape),
             "roundPrecision": round_precision,
