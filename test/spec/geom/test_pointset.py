@@ -70,3 +70,31 @@ def test_resample_length_gt_3():
     _, _, _, s = _make_set()
     rs = PointSet.resample(s, 4)
     assert len(rs) > 3
+
+
+def test_resample_preserves_single_stroke_uniform_behavior_and_input():
+    _, _, _, points = _make_set()
+    original = PointSet.clone(points)
+
+    assert PointSet.resample(points, 3) == original
+    assert points == original
+
+
+def test_resample_multiple_strokes_never_interpolates_pen_up_gap():
+    points = [
+        Point(0, 0, 0, 1),
+        Point(1, 0, 10, 1),
+        Point(100, 0, 20, 2),
+        Point(101, 0, 30, 2),
+    ]
+
+    resampled = PointSet.resample(points, 5)
+
+    assert resampled == [
+        Point(0, 0, 0, 1),
+        Point(0.5, 0, 5, 1),
+        Point(1, 0, 10, 1),
+        Point(100, 0, 20, 2),
+        Point(101, 0, 30, 2),
+    ]
+    assert all(not (1 < point.X < 100) for point in resampled)

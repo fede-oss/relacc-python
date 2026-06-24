@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from relacc.geom.point import Point
 from relacc.pipeline import _common as Common
 
 
@@ -32,3 +33,29 @@ def test_output_format_uses_output_extension_then_requested_or_default():
     assert Common.output_format("/tmp/report.csv", None) == "csv"
     assert Common.output_format(None, "xml") == "xml"
     assert Common.output_format(None, None, default="text") == "text"
+
+
+def _stroke_runs(count):
+    return [Point(index, 0, index, index) for index in range(count)]
+
+
+@pytest.mark.parametrize(
+    ("stroke_count", "expected_rate"),
+    [(1, 24), (4, 32), (20, 160), (32, 256), (33, 256)],
+)
+def test_sampling_rate_for_sets_uses_bounded_points_per_stroke_policy(
+    stroke_count, expected_rate
+):
+    assert Common.sampling_rate_for_sets([_stroke_runs(stroke_count)], None) == expected_rate
+
+
+def test_sampling_rate_for_sets_rejects_automatic_gestures_over_cap():
+    with pytest.raises(ValueError, match="more than 256 stroke runs"):
+        Common.sampling_rate_for_sets([_stroke_runs(257)], None)
+
+
+def test_sampling_rate_for_sets_validates_explicit_rate_against_strokes():
+    points = _stroke_runs(4)
+    with pytest.raises(ValueError, match="at least the maximum stroke count"):
+        Common.sampling_rate_for_sets([points], 3)
+    assert Common.sampling_rate_for_sets([points], 300) == 300

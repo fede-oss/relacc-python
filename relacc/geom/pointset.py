@@ -1,5 +1,3 @@
-import traceback
-
 from relacc.geom.measure import Measure
 from relacc.geom.point import Point
 from relacc.geom.rectangle import Rectangle
@@ -116,20 +114,29 @@ class PointSet:
 
     @staticmethod
     def unifResampling(points, n):
+        if not points:
+            raise ValueError("Points must not be empty.")
+        if not isinstance(n, int) or isinstance(n, bool) or n < 1:
+            raise ValueError("Sampling rate must be a positive integer.")
+
+        workingPoints = PointSet.clone(points)
+        if n == 1:
+            return [Point(workingPoints[0])]
+
         newPoints = []
-        pathLen = PointSet.pathLength(points)
+        pathLen = PointSet.pathLength(workingPoints)
         if pathLen == 0:
             for i in range(n):
-                newPoints.append(Point(points[0]))
+                newPoints.append(Point(workingPoints[0]))
             return newPoints
 
         intervalLen = pathLen / (n - 1)
         D = 0.0
-        newPoints = [points[0]]
+        newPoints = [workingPoints[0]]
         i = 1
-        while i < len(points):
-            prevPoint = points[i - 1]
-            currPoint = points[i]
+        while i < len(workingPoints):
+            prevPoint = workingPoints[i - 1]
+            currPoint = workingPoints[i]
             if currPoint.StrokeID == prevPoint.StrokeID:
                 d = Measure.distance(prevPoint, currPoint)
                 if d > 0 and (D + d) >= intervalLen:
@@ -139,7 +146,7 @@ class PointSet:
                     qt = prevPoint.T + s * (currPoint.T - prevPoint.T)
                     q = Point(qx, qy, qt, currPoint.StrokeID)
                     newPoints.append(q)
-                    points.insert(i, q)
+                    workingPoints.insert(i, q)
                     D = 0.0
                 else:
                     D += d
@@ -147,23 +154,53 @@ class PointSet:
 
         if len(newPoints) < n:
             for i in range(len(newPoints), n):
-                newPoints.append(Point(points[len(points) - 1]))
+                newPoints.append(Point(workingPoints[len(workingPoints) - 1]))
         return newPoints
 
     @staticmethod
-    def countStrokes(points):
-        arr = []
-        for i in range(1, len(points) - 1):
-            prevPoint = points[i - 1]
-            nextPoint = points[i]
-            if nextPoint.StrokeID != prevPoint.StrokeID:
-                arr.append(prevPoint.StrokeID)
+    def _contiguousStrokes(points):
+        if not points:
+            return []
 
-        uniq = []
-        for i, elem in enumerate(arr):
-            if len(arr) - 1 - arr[::-1].index(elem) == i:
-                uniq.append(elem)
-        return len(uniq)
+        strokes = [[points[0]]]
+        for point in points[1:]:
+            if point.StrokeID != strokes[-1][-1].StrokeID:
+                strokes.append([])
+            strokes[-1].append(point)
+        return strokes
+
+    @staticmethod
+    def _allocateResamplingPoints(strokes, n):
+        stroke_count = len(strokes)
+        remaining = n - stroke_count
+        allocations = [1] * stroke_count
+        if remaining == 0:
+            return allocations
+
+        lengths = [PointSet.pathLength(stroke) for stroke in strokes]
+        total_length = sum(lengths)
+        if total_length == 0:
+            for index in range(remaining):
+                allocations[index % stroke_count] += 1
+            return allocations
+
+        quotas = [remaining * length / total_length for length in lengths]
+        floors = [int(quota) for quota in quotas]
+        for index, floor in enumerate(floors):
+            allocations[index] += floor
+
+        unallocated = remaining - sum(floors)
+        remainder_order = sorted(
+            range(stroke_count),
+            key=lambda index: (-(quotas[index] - floors[index]), index),
+        )
+        for index in remainder_order[:unallocated]:
+            allocations[index] += 1
+        return allocations
+
+    @staticmethod
+    def countStrokes(points):
+        return len(PointSet._contiguousStrokes(points))
 
     @staticmethod
     def cumDistances(points, startIndex=None):
@@ -230,47 +267,36 @@ class PointSet:
 
     @staticmethod
     def eqDistStrokes(points, strkNum=None):
-        if not points or len(points) == 0:
-            return []
-
-        strokes = [None] * (strkNum or 0)
-        c = 0
-        if len(points) == 1:
-            strokes[c] = [points[0]]
-            return strokes
-
-        strokes[c] = []
-        for i in range(0, len(points) - 1):
-            currPoint = points[i]
-            nextPoint = points[i + 1]
-            strokes[c].append(currPoint)
-            if currPoint.StrokeID != nextPoint.StrokeID:
-                c += 1
-                strokes[c] = []
-
-        strokes[c].append(nextPoint)
-        return strokes
+        return PointSet._contiguousStrokes(points)
 
     @staticmethod
     def eqResample(points, n):
-        strkNum = PointSet.countStrokes(points)
-        strokes = PointSet.eqDistStrokes(points, strkNum)
-        pointsPerStroke = _js_round(n / strkNum)
-        newPoints = []
-        for stroke in strokes:
-            resampled = PointSet.unifResampling(stroke, pointsPerStroke)
-            newPoints = newPoints + resampled
-        PointSet.ensureResampling(newPoints, n)
-        return newPoints
+        return PointSet.resample(points, n)
 
     @staticmethod
     def ensureResampling(newPoints, n):
         if len(newPoints) != n:
-            traceback.print_stack()
-            raise SystemExit(1)
+            raise ValueError(
+                "Expected %s resampled points, received %s." % (n, len(newPoints))
+            )
 
     @staticmethod
     def resample(points, n):
-        newPoints = PointSet.unifResampling(points, n)
+        if not points:
+            raise ValueError("Points must not be empty.")
+        if not isinstance(n, int) or isinstance(n, bool):
+            raise ValueError("Sampling rate must be an integer.")
+
+        strokes = PointSet._contiguousStrokes(points)
+        if n < len(strokes):
+            raise ValueError(
+                "Sampling rate must be at least the number of strokes (%s)."
+                % len(strokes)
+            )
+
+        allocations = PointSet._allocateResamplingPoints(strokes, n)
+        newPoints = []
+        for stroke, allocation in zip(strokes, allocations):
+            newPoints.extend(PointSet.unifResampling(stroke, allocation))
         PointSet.ensureResampling(newPoints, n)
         return newPoints

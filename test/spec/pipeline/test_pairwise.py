@@ -204,7 +204,7 @@ def test_sampling_rate_for_sets_uses_max_strokes_when_rate_missing(tmp_path):
     points = Pairwise._read_points(str(csv_file))
 
     inferred_rate = Pairwise._sampling_rate_for_sets([points], None)
-    assert inferred_rate == 24
+    assert inferred_rate == 40
 
 
 def test_compute_compare_and_run_pairwise(tmp_path):
