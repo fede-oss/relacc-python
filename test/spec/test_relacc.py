@@ -4,7 +4,9 @@ import pytest
 
 from relacc import relacc as RelAcc
 from relacc.geom.point import Point
+from relacc.gestures.gesture import Gesture
 from relacc.gestures.ptaligntype import PtAlignType
+from relacc.gestures.summarygesture import SummaryGesture
 
 
 def p(x, y, t, sid):
@@ -55,6 +57,25 @@ def test_local_and_aggregate_shape_errors():
     assert local == [0, 1, 1]
     assert RelAcc.shapeError(gesture, summaryShape) == pytest.approx(RelAcc.mean(local))
     assert RelAcc.shapeVariability(gesture, summaryShape) == pytest.approx(RelAcc.stdev(local))
+
+
+def test_shape_error_uses_summary_stored_alignment(monkeypatch):
+    points = [p(0, 0, 0, 0), p(1, 0, 10, 0), p(2, 0, 20, 0)]
+    gestures = [Gesture(points, "line", 3), Gesture(points, "line", 3)]
+    summary = SummaryGesture(gestures, PtAlignType.CHRONOLOGICAL)
+
+    monkeypatch.setattr(
+        "relacc.gestures.summarygesture.PDollarAlt.match",
+        lambda reference, candidate: [2, 1, 0],
+    )
+
+    summary.alignmentType = PtAlignType.CLOUD_MATCH
+    cloud_error = RelAcc.shapeError(gestures[1], summary)
+    summary.alignmentType = PtAlignType.CHRONOLOGICAL
+    chronological_error = RelAcc.shapeError(gestures[1], summary)
+
+    assert cloud_error > 0
+    assert chronological_error == 0
 
 
 def test_geometric_metrics():

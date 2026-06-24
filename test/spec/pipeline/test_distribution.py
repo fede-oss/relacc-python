@@ -334,6 +334,7 @@ def test_run_distribution_comparison_parent_dir_grouping_and_validation(tmp_path
     assert payload["metadata"]["groupBy"] == "parent-dir"
     assert payload["metadata"]["rate"] == 11
     assert payload["metadata"]["alignment"] == 1
+    assert payload["metadata"]["alignmentName"] == "cloud-match"
     assert payload["metadata"]["summary"] == "centroid"
     assert payload["metadata"]["popular"] is True
     assert payload["metadata"]["dtwWindow"] == 4

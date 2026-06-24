@@ -43,7 +43,7 @@ def build_parser():
     parser.add_argument("--legacy-column-names", action="store_true")
     parser.add_argument("--legacy-json-fields", action="store_true")
     parser.add_argument("-r", "--rate")
-    parser.add_argument("-a", "--alignment")
+    parser.add_argument("-a", "--alignment", type=PtAlignType.normalize)
     parser.add_argument("-m", "--summary")
     parser.add_argument("-p", "--popular", action="store_true")
     parser.add_argument("-f", "--format")
@@ -91,8 +91,9 @@ def _run_experiment(opt, paths=None, metadata=None):
         raise ValueError("Invalid output format (%s). Supported formats: json, csv." % fmt)
 
     rate = _int_cast(opt.rate)
-    parsed_alignment = _int_cast(opt.alignment)
-    alignment = PtAlignType.CHRONOLOGICAL if parsed_alignment is None else parsed_alignment
+    alignment = PtAlignType.normalize(
+        PtAlignType.CHRONOLOGICAL if opt.alignment is None else opt.alignment
+    )
     parsed_round = _int_cast(opt.round)
     round_precision = 3 if parsed_round is None else parsed_round
     dtw_window = _int_cast(opt.dtw_window)
@@ -122,6 +123,7 @@ def _run_experiment(opt, paths=None, metadata=None):
             "format": fmt,
             "rate": payload["metadata"]["rate"],
             "alignment": alignment,
+            "alignmentName": PtAlignType.name(alignment),
             "summary": opt.summary,
             "popular": bool(opt.popular),
             "roundPrecision": round_precision,
