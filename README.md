@@ -58,11 +58,6 @@ The metrics cover:
 
 Lower values always mean closer to the reference. The movement-feature metrics compute the feature on the sample and on the summary/reference, then report the absolute difference; `curvature` reports a Wasserstein distance between local curvature distributions. Passing a single CSV produces all zeros (reference = the file itself).
 
-The DTW-family metrics are computed on the chronological point sequences after the same resampling and translation steps used elsewhere in the toolkit.
-The Python API uses the exact DTW dynamic program, so runtime is quadratic in the resampled point count.
-For the weighted variants, the logistic phase-penalty slope defaults to `0.25` (`penalty_g`) and can be overridden from the Python API when stricter or looser off-diagonal penalties are needed.
-On the CLI, the DTW-family metrics are included by default. Smaller resampling rates stay exact; larger resampling rates automatically switch to a Sakoe-Chiba-style band for faster approximate runs. Use `--exact-dtw` to force exact DTW, or `--dtw-window N` to choose your own window radius.
-
 ---
 
 ## The Summary Gesture (`-m`)
