@@ -1,3 +1,7 @@
+import math
+import statistics
+from collections import Counter
+
 from relacc.geom.measure import Measure
 from relacc.geom.point import Point
 from relacc.geom.pointset import PointSet
@@ -16,17 +20,38 @@ def getPointsForAlignment(gesture):
     return PointSet.translateBy(points, center)
 
 
+def _stroke_id_mode(stroke_ids):
+    counts = Counter(stroke_ids)
+    most_common_count = max(counts.values())
+    return min(
+        stroke_id
+        for stroke_id, count in counts.items()
+        if count == most_common_count
+    )
+
+
+def _validate_aggregate_point(point):
+    if not (
+        math.isfinite(point.X)
+        and math.isfinite(point.Y)
+        and math.isfinite(point.T)
+    ):
+        raise ValueError("Non-finite aggregate point value.")
+
+
 def computeSummaryShapes(self, gestures, popularStrokeNum):
-    centroid = []
-    medoid = []
     xPoints = []
     yPoints = []
+    tPoints = []
+    strokeIds = []
 
     collectionLen = len(gestures)
     includedCount = 0
     for _ in range(self.refGesture.samplingRate):
-        centroid.append(Point())
-        medoid.append(Point())
+        xPoints.append([])
+        yPoints.append([])
+        tPoints.append([])
+        strokeIds.append([])
 
     for g in range(collectionLen):
         gesture = gestures[g]
@@ -37,24 +62,34 @@ def computeSummaryShapes(self, gestures, popularStrokeNum):
         points = self.alignGesture(gesture, self.alignmentType)
         for i in range(self.refGesture.samplingRate):
             pt = points[i]
-            centroid[i] = pt.add(centroid[i])
-            if i >= len(xPoints):
-                xPoints.append([])
-                yPoints.append([])
             xPoints[i].append(pt.X)
             yPoints[i].append(pt.Y)
+            tPoints[i].append(pt.T)
+            strokeIds[i].append(pt.StrokeID)
 
     if includedCount == 0:
         raise ValueError("No gestures available to compute summary shapes.")
 
-    pivot = int(includedCount / 2)
+    centroid = []
+    medoid = []
     for i in range(self.refGesture.samplingRate):
-        centroid[i] = centroid[i].divideBy(includedCount)
-        xPoints[i].sort()
-        yPoints[i].sort()
-        xval = xPoints[i][pivot] if pivot < len(xPoints[i]) else None
-        yval = yPoints[i][pivot] if pivot < len(yPoints[i]) else None
-        medoid[i] = Point(xval, yval, centroid[i].T, centroid[i].StrokeID)
+        stroke_id = _stroke_id_mode(strokeIds[i])
+        centroid_point = Point(
+            statistics.fmean(xPoints[i]),
+            statistics.fmean(yPoints[i]),
+            statistics.fmean(tPoints[i]),
+            stroke_id,
+        )
+        medoid_point = Point(
+            statistics.median(xPoints[i]),
+            statistics.median(yPoints[i]),
+            statistics.median(tPoints[i]),
+            stroke_id,
+        )
+        _validate_aggregate_point(centroid_point)
+        _validate_aggregate_point(medoid_point)
+        centroid.append(centroid_point)
+        medoid.append(medoid_point)
 
     return {"centroid": centroid, "medoid": medoid}
 
