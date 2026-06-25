@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from contextlib import asynccontextmanager
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from . import service as service_policy
 from .report_cache import (
     get_report_cache,
     list_report_caches,
@@ -16,11 +18,13 @@ from .report_cache import (
     report_table,
 )
 from .service import (
+    cleanup_orphan_workdirs,
     create_group_job,
-    create_job,
     export_result,
     get_job,
+    has_active_job_capacity,
     parse_config,
+    prune_terminal_jobs,
     public_job,
     render_job_overlay,
     run_job,
@@ -31,7 +35,14 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 DIST_DIR = STATIC_DIR / "dist"
 INDEX_FILE = DIST_DIR / "index.html"
 
-app = FastAPI(title="RelAcc Web Workbench", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    cleanup_orphan_workdirs()
+    yield
+
+
+app = FastAPI(title="RelAcc Web Workbench", version="0.1.0", lifespan=lifespan)
 if DIST_DIR.exists():
     app.mount("/assets", StaticFiles(directory=DIST_DIR / "assets"), name="assets")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -186,6 +197,37 @@ def cached_report_overlay(
     return Response(svg, media_type="image/svg+xml")
 
 
+async def _read_bounded_upload(upload: UploadFile, remaining_budget: int):
+    data = bytearray()
+    try:
+        while True:
+            chunk = await upload.read(1024 * 1024)
+            if not chunk:
+                break
+            if len(data) + len(chunk) > service_policy.MAX_UPLOAD_BYTES:
+                raise HTTPException(status_code=413, detail=f"Upload exceeds per-file limit ({service_policy.MAX_UPLOAD_BYTES} bytes).")
+            if len(data) + len(chunk) > remaining_budget:
+                raise HTTPException(status_code=413, detail=f"Upload request exceeds total limit ({service_policy.MAX_TOTAL_UPLOAD_BYTES} bytes).")
+            data.extend(chunk)
+    finally:
+        await upload.close()
+    return bytes(data)
+
+
+def _validation_hit_resource_limit(job: dict):
+    limit_terms = ("limit", "exceed", "compression ratio")
+    for issue in job.get("validation", {}).get("issues", []):
+        message = str(issue.get("message", "")).lower()
+        if issue.get("severity") == "error" and any(term in message for term in limit_terms):
+            return True
+    return False
+
+
+def _forget_job(job_id: str):
+    with service_policy.LOCK:
+        service_policy.JOBS.pop(job_id, None)
+
+
 @app.post("/api/jobs")
 async def create_evaluation_job(
     background_tasks: BackgroundTasks,
@@ -199,10 +241,25 @@ async def create_evaluation_job(
         parsed_config = parse_config(config)
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    reference_bytes = await reference_zip.read()
+    if len(comparison_zips) > service_policy.MAX_COMPARISON_ARCHIVES:
+        raise HTTPException(status_code=413, detail=f"Comparison archive limit exceeded ({service_policy.MAX_COMPARISON_ARCHIVES}).")
+    if candidate_zip is not None and len(comparison_zips) + 1 > service_policy.MAX_COMPARISON_ARCHIVES:
+        raise HTTPException(status_code=413, detail=f"Comparison archive limit exceeded ({service_policy.MAX_COMPARISON_ARCHIVES}).")
+    prune_terminal_jobs()
+    if not has_active_job_capacity():
+        raise HTTPException(status_code=429, detail="Too many queued or running jobs.")
+
+    total_bytes = 0
+    reference_bytes = await _read_bounded_upload(reference_zip, remaining_budget=service_policy.MAX_TOTAL_UPLOAD_BYTES)
+    total_bytes += len(reference_bytes)
     comparisons: list[tuple[str, bytes]] = []
     if candidate_zip is not None:
-        comparisons.append(("candidate", await candidate_zip.read()))
+        candidate_bytes = await _read_bounded_upload(
+            candidate_zip,
+            remaining_budget=service_policy.MAX_TOTAL_UPLOAD_BYTES - total_bytes,
+        )
+        total_bytes += len(candidate_bytes)
+        comparisons.append(("candidate", candidate_bytes))
     names = []
     try:
         import json
@@ -212,10 +269,18 @@ async def create_evaluation_job(
         names = []
     for index, upload in enumerate(comparison_zips, start=1):
         name = names[index - 1] if index - 1 < len(names) else f"comparison-{index}"
-        comparisons.append((str(name), await upload.read()))
+        upload_bytes = await _read_bounded_upload(
+            upload,
+            remaining_budget=service_policy.MAX_TOTAL_UPLOAD_BYTES - total_bytes,
+        )
+        total_bytes += len(upload_bytes)
+        comparisons.append((str(name), upload_bytes))
     if not comparisons:
         raise HTTPException(status_code=400, detail="At least one comparison ZIP is required.")
     job = create_group_job(reference_bytes, comparisons, parsed_config)
+    if job["status"] == "failed" and _validation_hit_resource_limit(job):
+        _forget_job(job["id"])
+        raise HTTPException(status_code=413, detail="Uploaded archive exceeds configured resource limits.")
     if job["status"] == "queued":
         background_tasks.add_task(run_job, job["id"])
     return job
