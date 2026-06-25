@@ -1,5 +1,6 @@
+import pytest
+
 from relacc.geom.point import Point
-from relacc.geom.pointset import PointSet
 from relacc.gestures.gesture import Gesture
 from relacc.gestures.ptaligntype import PtAlignType
 from relacc.gestures.summarygesture import SummaryGesture, numericSort
@@ -38,34 +39,111 @@ def test_popular_stroke_summary():
     assert len(summary.getPoints()) == gestureA.samplingRate
 
 
-def test_compute_summary_shapes_skips_above_popular_threshold(monkeypatch):
-    gestureA, gestureB = _gestures()
+def _stroke_gesture(strokes, name="modal shape"):
+    points = []
+    timestamp = 0
+    for stroke_id, xs in enumerate(strokes):
+        for x in xs:
+            points.append(p(x, 0, timestamp, stroke_id))
+            timestamp += 1
+    return Gesture(points, name, 4)
 
-    calls = {"i": 0}
 
-    def _count_strokes(_):
-        calls["i"] += 1
-        return 1 if calls["i"] == 1 else 2
+def _popular_collection():
+    lower = _stroke_gesture([[-150, -50, 50, 150]])
+    modal_a = _stroke_gesture([[-2, -1], [1, 2]])
+    modal_b = _stroke_gesture([[-4, -3], [3, 4]])
+    higher = _stroke_gesture([[-300, -200], [0], [200]])
+    return lower, modal_a, modal_b, higher
 
-    monkeypatch.setattr(PointSet, "countStrokes", staticmethod(_count_strokes))
 
-    class SelfObj:
-        refGesture = gestureA
-        alignmentType = PtAlignType.CHRONOLOGICAL
+def _x_values(points):
+    return [point.X for point in points]
 
-        def __init__(self):
-            self.calls = 0
 
-        def alignGesture(self, gesture, _):
-            self.calls += 1
-            return gesture.points
+def test_popular_centroid_uses_only_exact_modal_stroke_count():
+    lower, modal_a, modal_b, higher = _popular_collection()
 
-    self_obj = SelfObj()
-    shapes = SummaryGesture.computeSummaryShapes(self_obj, [gestureA, gestureB], 1)
+    summary = SummaryGesture(
+        [lower, modal_a, modal_b, higher],
+        PtAlignType.CHRONOLOGICAL,
+        "centroid",
+        True,
+    )
 
-    assert self_obj.calls == 1
-    assert len(shapes["centroid"]) == gestureA.samplingRate
-    assert len(shapes["medoid"]) == gestureA.samplingRate
+    assert _x_values(summary.originalPoints) == [-3, -2, 2, 3]
+
+
+def test_popular_medoid_uses_only_exact_modal_stroke_count():
+    lower, modal_a, modal_b, higher = _popular_collection()
+
+    summary = SummaryGesture(
+        [higher, modal_b, lower, modal_a],
+        PtAlignType.CHRONOLOGICAL,
+        "medoid",
+        True,
+    )
+
+    assert _x_values(summary.originalPoints) == [-3, -2, 2, 3]
+
+
+def test_popular_stroke_tie_uses_numeric_minimum_across_permutations():
+    one_stroke = _stroke_gesture([[-10, 0, 10, 20]])
+    two_stroke = _stroke_gesture([[-200, -100], [100, 200]])
+    three_stroke = _stroke_gesture([[-300, -200], [0], [200]])
+    four_stroke = _stroke_gesture([[-400], [-100], [100], [400]])
+    permutations = [
+        [one_stroke, two_stroke, three_stroke, four_stroke],
+        [two_stroke, three_stroke, four_stroke, one_stroke],
+        [four_stroke, three_stroke, two_stroke, one_stroke],
+    ]
+
+    summaries = [
+        SummaryGesture(
+            permutation,
+            PtAlignType.CHRONOLOGICAL,
+            "centroid",
+            True,
+        )
+        for permutation in permutations
+    ]
+
+    assert [_x_values(summary.originalPoints) for summary in summaries] == [
+        [-15, -5, 5, 15],
+        [-15, -5, 5, 15],
+        [-15, -5, 5, 15],
+    ]
+
+
+@pytest.mark.parametrize("summary_shape", ["kcentroid", "kmedoid"])
+def test_popular_k_modes_search_only_exact_modal_stroke_count(summary_shape):
+    lower_nonmodal = _stroke_gesture([[-3, -2, 2, 3]])
+    modal_a = _stroke_gesture([[-2, -1], [1, 2]])
+    modal_b = _stroke_gesture([[-4, -3], [3, 4]])
+    higher_nonmodal = _stroke_gesture([[-300, -200], [0], [200]])
+
+    summary = SummaryGesture(
+        [lower_nonmodal, modal_a, modal_b, higher_nonmodal],
+        PtAlignType.CHRONOLOGICAL,
+        summary_shape,
+        True,
+    )
+
+    assert summary.closestIndex == 1
+    assert summary.originalPoints == modal_a.originalPoints
+
+
+def test_popular_without_summary_shape_preserves_first_gesture_reference():
+    lower, modal_a, modal_b, _ = _popular_collection()
+
+    summary = SummaryGesture(
+        [lower, modal_a, modal_b],
+        PtAlignType.CHRONOLOGICAL,
+        None,
+        True,
+    )
+
+    assert summary.originalPoints == lower.originalPoints
 
 
 def test_numeric_sort_helper():

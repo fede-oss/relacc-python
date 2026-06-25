@@ -32,6 +32,16 @@ def _timed_line_rows(times):
     ]
 
 
+def _stroke_rows(strokes):
+    rows = ["stroke_id x y time is_writing"]
+    timestamp = 0
+    for stroke_id, xs in enumerate(strokes):
+        for x in xs:
+            rows.append(f"{stroke_id} {x} 0 {timestamp} 1")
+            timestamp += 1
+    return rows
+
+
 def _normalize_ordered_payload(payload):
     return {
         "metadata": payload["metadata"],
@@ -110,6 +120,35 @@ def test_run_one_vs_many_timing_metrics_are_invariant_to_file_order(tmp_path, su
     )
 
     assert _normalize_ordered_payload(original) == _normalize_ordered_payload(reordered)
+
+
+def test_run_one_vs_many_popular_summary_filters_to_exact_modal_count(tmp_path):
+    lower = tmp_path / "s1-modal-t1.csv"
+    modal_a = tmp_path / "s1-modal-t2.csv"
+    modal_b = tmp_path / "s1-modal-t3.csv"
+    higher = tmp_path / "s1-modal-t4.csv"
+    _write_csv(lower, _stroke_rows([[-150, -50, 50, 150]]))
+    _write_csv(modal_a, _stroke_rows([[-2, -1], [1, 2]]))
+    _write_csv(modal_b, _stroke_rows([[-4, -3], [3, 4]]))
+    _write_csv(higher, _stroke_rows([[-300, -200], [0], [200]]))
+
+    payload = OneVsMany.run_one_vs_many_comparison(
+        [str(lower), str(modal_a), str(modal_b), str(higher)],
+        label="modal",
+        rate=4,
+        summary_shape="centroid",
+        popular_shape=True,
+        stats=False,
+        metric_names=["shapeError"],
+        round_precision=None,
+    )
+
+    modal_a_sample = next(
+        sample
+        for sample in payload["samples"]
+        if sample["file"] == "s1-modal-t2"
+    )
+    assert modal_a_sample["shapeError"] == 1.0
 
 
 def test_run_one_vs_many_stats_aggregate_raw_values_before_rounding(monkeypatch, tmp_path):
