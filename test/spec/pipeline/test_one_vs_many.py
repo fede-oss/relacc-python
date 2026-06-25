@@ -23,6 +23,27 @@ def _sample_rows(offset=0, stroke_1=0, stroke_2=1):
     ]
 
 
+def _timed_line_rows(times):
+    return [
+        "stroke_id x y time is_writing",
+        f"0 0 0 {times[0]} 1",
+        f"0 1 0 {times[1]} 1",
+        f"0 2 0 {times[2]} 1",
+    ]
+
+
+def _normalize_ordered_payload(payload):
+    return {
+        "metadata": payload["metadata"],
+        "results": payload["results"],
+        "samples": sorted(payload["samples"], key=lambda row: row["file"]),
+        "rawMetricOutputs": sorted(
+            payload["rawMetricOutputs"],
+            key=lambda row: (row["sampleKey"], row["metric"]),
+        ),
+    }
+
+
 def test_run_one_vs_many_comparison_outputs_samples_and_stats(tmp_path):
     f1 = tmp_path / "s1-arrow-t1.csv"
     f2 = tmp_path / "s1-arrow-t2.csv"
@@ -52,6 +73,43 @@ def test_run_one_vs_many_comparison_outputs_samples_and_stats(tmp_path):
     assert payload["rawMetricOutputs"][0]["recordType"] == "rawMetricOutput"
     assert payload["rawMetricOutputs"][0]["comparisonMode"] == "one-vs-many"
     assert payload["rawMetricOutputs"][0]["alignmentName"] == "chronological"
+
+
+@pytest.mark.parametrize("summary_shape", ["centroid", "medoid"])
+def test_run_one_vs_many_timing_metrics_are_invariant_to_file_order(tmp_path, summary_shape):
+    f1 = tmp_path / "s1-line-t1.csv"
+    f2 = tmp_path / "s1-line-t2.csv"
+    f3 = tmp_path / "s1-line-t3.csv"
+    _write_csv(f1, _timed_line_rows([0, 10, 20]))
+    _write_csv(f2, _timed_line_rows([0, 100, 200]))
+    _write_csv(f3, _timed_line_rows([0, 70, 140]))
+
+    metric_names = [
+        "timeError",
+        "timeVariability",
+        "velocityError",
+        "meanStrokeDuration",
+    ]
+    original = OneVsMany.run_one_vs_many_comparison(
+        [str(f1), str(f2), str(f3)],
+        label="line",
+        rate=3,
+        summary_shape=summary_shape,
+        stats=True,
+        metric_names=metric_names,
+        round_precision=None,
+    )
+    reordered = OneVsMany.run_one_vs_many_comparison(
+        [str(f3), str(f1), str(f2)],
+        label="line",
+        rate=3,
+        summary_shape=summary_shape,
+        stats=True,
+        metric_names=metric_names,
+        round_precision=None,
+    )
+
+    assert _normalize_ordered_payload(original) == _normalize_ordered_payload(reordered)
 
 
 def test_run_one_vs_many_stats_aggregate_raw_values_before_rounding(monkeypatch, tmp_path):
