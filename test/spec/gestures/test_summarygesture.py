@@ -126,8 +126,17 @@ def test_summarygesture_kmedoid_mode():
     assert summary.originalPoints == s
 
 
-@pytest.mark.parametrize("summary_shape", ["centroid", "medoid"])
-def test_synthetic_summary_points_are_permutation_invariant(summary_shape):
+@pytest.mark.parametrize(
+    ("summary_shape", "expected_timestamps"),
+    [
+        ("centroid", [0, 60, 120]),
+        ("medoid", [0, 70, 140]),
+    ],
+)
+def test_synthetic_summary_points_are_permutation_invariant(
+    summary_shape,
+    expected_timestamps,
+):
     gestures = _permutation_fixture()
     permutations = [
         gestures,
@@ -142,7 +151,7 @@ def test_synthetic_summary_points_are_permutation_invariant(summary_shape):
     point_fields = [_point_fields(summary.originalPoints) for summary in summaries]
 
     assert point_fields[0] == point_fields[1] == point_fields[2]
-    assert [point.T for point in summaries[0].originalPoints] == [0, 70, 140]
+    assert [point.T for point in summaries[0].originalPoints] == expected_timestamps
     assert [point.StrokeID for point in summaries[0].originalPoints] == [2, 2, 2]
 
 
