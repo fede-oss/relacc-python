@@ -74,7 +74,6 @@ The summary gesture is the computed reference all samples are measured against. 
 `centroid` and `medoid` produce a synthetic shape that may not correspond to any real recording. `kcentroid` and `kmedoid` always return a real gesture from the input.
 Use `-p` (`--popular`) to filter out gestures whose stroke count differs from the most common one before building the summary.
 
-Reports produced before version 1.2.0 may have input-order-dependent timing metrics for synthetic `centroid` or `medoid` summaries, because summary timestamps were inherited from one input gesture. Regenerate those reports when comparing `timeError`, `timeVariability`, `velocityError`, `velocityVariability`, `meanStrokeDuration`, or other time-derived values.
 
 ### Multi-stroke resampling
 
