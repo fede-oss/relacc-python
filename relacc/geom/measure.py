@@ -40,4 +40,4 @@ class Measure:
 
     @staticmethod
     def trigonometricOrder(v, u):
-        return Vector.dotProduct(v, u) >= 0
+        return Vector.crossProduct(u, v) >= 0

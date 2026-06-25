@@ -22,3 +22,16 @@ def test_vector_dot_product():
     assert Vector.dotProduct(v1, v2) == 8
     assert Vector.dotProduct(v2, v3) == 16
     assert Vector.dotProduct(v1, v3) == 16
+
+
+def test_vector_cross_product_cardinal_directions():
+    p = Point(0, 0, 0, 0)
+    right = Vector(p, Point(1, 0, 0, 0))
+    up = Vector(p, Point(0, 1, 0, 0))
+    down = Vector(p, Point(0, -1, 0, 0))
+    left = Vector(p, Point(-1, 0, 0, 0))
+
+    assert Vector.crossProduct(right, right) == 0
+    assert Vector.crossProduct(right, up) == 1
+    assert Vector.crossProduct(right, down) == -1
+    assert Vector.crossProduct(right, left) == 0

@@ -16,3 +16,7 @@ class Vector:
     @staticmethod
     def dotProduct(v, u):
         return v.vec.X * u.vec.X + v.vec.Y * u.vec.Y
+
+    @staticmethod
+    def crossProduct(v, u):
+        return v.vec.X * u.vec.Y - v.vec.Y * u.vec.X

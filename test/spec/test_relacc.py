@@ -95,6 +95,30 @@ def test_turning_angles_normalization():
     assert angles[1] < 0
 
 
+def test_turning_angles_distinguish_mirrored_paths():
+    upward = [p(0, 0, 0, 0), p(1, 0, 1, 0), p(1, 1, 2, 0)]
+    downward = [p(0, 0, 0, 0), p(1, 0, 1, 0), p(1, -1, 2, 0)]
+
+    upward_angles = RelAcc.turningAngleArray(upward)
+    downward_angles = RelAcc.turningAngleArray(downward)
+
+    assert upward_angles == pytest.approx([0, math.pi / 2, 0])
+    assert downward_angles == pytest.approx([0, -math.pi / 2, 0])
+    assert abs(upward_angles[1]) == pytest.approx(abs(downward_angles[1]))
+    assert upward_angles[1] == pytest.approx(-downward_angles[1])
+
+
+def test_local_bending_errors_distinguish_mirrored_paths():
+    upward = [p(0, 0, 0, 0), p(1, 0, 1, 0), p(1, 1, 2, 0)]
+    downward = [p(0, 0, 0, 0), p(1, 0, 1, 0), p(1, -1, 2, 0)]
+    gesture = type("GestureObj", (), {"points": downward})()
+    summaryShape = _summary_for(upward, downward)
+
+    assert RelAcc.localBendingErrors(gesture, summaryShape) == pytest.approx(
+        [0, math.pi, 0]
+    )
+
+
 def test_kinematic_metrics():
     _, _, _, gesture, summaryShape = _fixture_shapes()
     assert RelAcc.timeError(gesture, summaryShape) == 0
