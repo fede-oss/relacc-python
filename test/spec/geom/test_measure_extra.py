@@ -1,5 +1,7 @@
 import math
 
+import pytest
+
 from relacc.geom.measure import Measure
 from relacc.geom.point import Point
 from relacc.geom.vector import Vector
@@ -29,13 +31,21 @@ def test_short_angle_cosine_edges():
     assert math.isclose(Measure.shortAngle(Vector(p, right), Vector(p, left)), math.pi, abs_tol=1e-10)
 
 
-def test_trigonometric_angle_non_ordered():
+@pytest.mark.parametrize(
+    ("incoming_point", "outgoing_point", "expected_angle"),
+    [
+        (Point(1, 0, 0, 0), Point(0, 1, 0, 0), math.pi / 2),
+        (Point(1, 0, 0, 0), Point(0, -1, 0, 0), 3 * math.pi / 2),
+        (Point(1, 0, 0, 0), Point(2, 0, 0, 0), 0),
+        (Point(1, 0, 0, 0), Point(-1, 0, 0, 0), math.pi),
+        (Point(1, 0, 0, 0), Point(0, 0, 0, 0), 0),
+    ],
+)
+def test_angle_uses_incoming_to_outgoing_orientation(
+    incoming_point, outgoing_point, expected_angle
+):
     p = Point(0, 0, 0, 0)
-    a = Point(1, 0, 0, 0)
-    b = Point(-1, 1, 0, 0)
+    incoming = Vector(p, incoming_point)
+    outgoing = Vector(p, outgoing_point)
 
-    v = Vector(p, a)
-    u = Vector(p, b)
-
-    assert Measure.trigonometricOrder(v, u) is False
-    assert Measure.angle(v, u) > math.pi
+    assert Measure.angle(outgoing, incoming) == pytest.approx(expected_angle)
