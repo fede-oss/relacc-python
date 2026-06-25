@@ -1,3 +1,5 @@
+import pytest
+
 from relacc.geom.point import Point
 from relacc.gestures.gesture import Gesture
 from relacc.gestures.ptaligntype import PtAlignType
@@ -111,6 +113,37 @@ def test_popular_stroke_tie_uses_numeric_minimum_across_permutations():
         [-15, -5, 5, 15],
         [-15, -5, 5, 15],
     ]
+
+
+@pytest.mark.parametrize("summary_shape", ["kcentroid", "kmedoid"])
+def test_popular_k_modes_search_only_exact_modal_stroke_count(summary_shape):
+    lower_nonmodal = _stroke_gesture([[-3, -2, 2, 3]])
+    modal_a = _stroke_gesture([[-2, -1], [1, 2]])
+    modal_b = _stroke_gesture([[-4, -3], [3, 4]])
+    higher_nonmodal = _stroke_gesture([[-300, -200], [0], [200]])
+
+    summary = SummaryGesture(
+        [lower_nonmodal, modal_a, modal_b, higher_nonmodal],
+        PtAlignType.CHRONOLOGICAL,
+        summary_shape,
+        True,
+    )
+
+    assert summary.closestIndex == 1
+    assert summary.originalPoints == modal_a.originalPoints
+
+
+def test_popular_without_summary_shape_preserves_first_gesture_reference():
+    lower, modal_a, modal_b, _ = _popular_collection()
+
+    summary = SummaryGesture(
+        [lower, modal_a, modal_b],
+        PtAlignType.CHRONOLOGICAL,
+        None,
+        True,
+    )
+
+    assert summary.originalPoints == lower.originalPoints
 
 
 def test_numeric_sort_helper():

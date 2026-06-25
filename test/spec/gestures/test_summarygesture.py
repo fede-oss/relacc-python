@@ -212,7 +212,7 @@ def test_compute_summary_shapes_rejects_non_finite_aggregate_timestamp():
     ]
 
     with pytest.raises(ValueError, match="aggregate"):
-        SummaryGesture.computeSummaryShapes(DummySummary(), gestures, popularStrokeNum=0)
+        SummaryGesture.computeSummaryShapes(DummySummary(), gestures)
 
 
 def test_summarygesture_knn_uses_effective_alignment(monkeypatch):
@@ -229,7 +229,7 @@ def test_summarygesture_knn_uses_effective_alignment(monkeypatch):
     assert None not in calls
 
 
-def test_compute_summary_shapes_divides_by_included_gestures():
+def test_compute_summary_shapes_divides_by_all_supplied_gestures():
     class DummySummary:
         def __init__(self):
             self.refGesture = SimpleNamespace(samplingRate=2)
@@ -258,7 +258,7 @@ def test_compute_summary_shapes_divides_by_included_gestures():
         aligned=[Point(30, 0, 0, 0), Point(40, 0, 0, 0)],
     )
 
-    shapes = SummaryGesture.computeSummaryShapes(DummySummary(), [included, filtered], popularStrokeNum=1)
+    shapes = SummaryGesture.computeSummaryShapes(DummySummary(), [included])
     centroid = shapes["centroid"]
     assert [pt.X for pt in centroid] == [10, 20]
 
@@ -284,4 +284,4 @@ def test_compute_summary_shapes_rejects_empty_filtered_set():
     )
 
     with pytest.raises(ValueError, match="No gestures available to compute summary shapes\\."):
-        SummaryGesture.computeSummaryShapes(DummySummary(), [filtered], popularStrokeNum=1)
+        SummaryGesture.computeSummaryShapes(DummySummary(), [])

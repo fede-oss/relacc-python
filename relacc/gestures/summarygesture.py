@@ -39,7 +39,7 @@ def _validate_aggregate_point(point):
         raise ValueError("Non-finite aggregate point value.")
 
 
-def computeSummaryShapes(self, gestures, popularStrokeNum):
+def computeSummaryShapes(self, gestures):
     xPoints = []
     yPoints = []
     tPoints = []
@@ -55,9 +55,6 @@ def computeSummaryShapes(self, gestures, popularStrokeNum):
 
     for g in range(collectionLen):
         gesture = gestures[g]
-        numStrk = PointSet.countStrokes(gesture.points)
-        if popularStrokeNum > 0 and numStrk > popularStrokeNum:
-            continue
         includedCount += 1
         points = self.alignGesture(gesture, self.alignmentType)
         for i in range(self.refGesture.samplingRate):
@@ -112,35 +109,48 @@ class SummaryGesture(Gesture):
         )
         self.alignmentType = PtAlignType.normalize(selected_alignment)
 
-        popularStrokeNum = 0
-        if usePopularStrokeNum:
-            strokeHist = {}
-            for g in range(collectionLen):
-                gesture = gestures[g]
-                numStrk = PointSet.countStrokes(gesture.points)
-                if numStrk not in strokeHist:
-                    strokeHist[numStrk] = 0
-                strokeHist[numStrk] += 1
+        summary_modes = {"centroid", "medoid", "kcentroid", "kmedoid"}
+        records = [
+            (index, gesture)
+            for index, gesture in enumerate(gestures)
+        ]
+        selected_records = records
+        if usePopularStrokeNum and summaryShape in summary_modes:
+            counted_records = [
+                (index, gesture, PointSet.countStrokes(gesture.points))
+                for index, gesture in records
+            ]
+            frequencies = Counter(record[2] for record in counted_records)
+            maximum_frequency = max(frequencies.values())
+            popularStrokeNum = min(
+                count
+                for count, frequency in frequencies.items()
+                if frequency == maximum_frequency
+            )
+            selected_records = [
+                (index, gesture)
+                for index, gesture, stroke_count in counted_records
+                if stroke_count == popularStrokeNum
+            ]
 
-            popularStrokeVal = 0
-            for key, val in strokeHist.items():
-                if val > popularStrokeVal:
-                    popularStrokeVal = val
-                    popularStrokeNum = int(key)
-
-        shapes = computeSummaryShapes(self, gestures, popularStrokeNum)
+        shapes = None
+        if summaryShape in summary_modes:
+            shapes = computeSummaryShapes(
+                self,
+                [record[1] for record in selected_records],
+            )
 
         def knn(referenceGesture):
             idx = -1
             minimum = float("inf")
-            for g in range(collectionLen):
-                points = self.alignGesture(gestures[g], self.alignmentType)
+            for original_index, gesture in selected_records:
+                points = self.alignGesture(gesture, self.alignmentType)
                 distance = 0
                 for i in range(refg.samplingRate):
                     distance += Measure.sqDistance(referenceGesture[i], points[i])
                 if distance < minimum:
                     minimum = distance
-                    idx = g
+                    idx = original_index
             return idx
 
         if summaryShape == "centroid":
