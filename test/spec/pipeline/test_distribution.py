@@ -1,3 +1,4 @@
+import csv
 import math
 from pathlib import Path
 
@@ -11,6 +12,13 @@ from relacc.distribution_metrics import (
 )
 from relacc.metrics import METRIC_NAMES
 from relacc.pipeline import distribution as Distribution
+
+REMOVED_INFERENTIAL_FIELDS = [
+    "meanCi95Low",
+    "meanCi95High",
+    "normalityPValue",
+    "ksPValue",
+]
 
 
 def _write_csv(path: Path, rows):
@@ -193,6 +201,11 @@ def test_run_distribution_comparison_outputs_per_class_and_overall(tmp_path):
     )
 
     assert payload["metadata"]["comparisonMode"] == "distribution"
+    assert payload["metadata"]["statisticalMode"] == "descriptive-pair-distances"
+    assert payload["metadata"]["independentUnit"] == "gesture-file"
+    assert payload["metadata"]["pairValuesIndependent"] is False
+    assert payload["metadata"]["statisticsSchemaVersion"] == 2
+    assert payload["metadata"]["removedInferentialFields"] == REMOVED_INFERENTIAL_FIELDS
     assert payload["metadata"]["groupBy"] == "filename-label"
     assert payload["metadata"]["comparisonGroups"][Distribution.WITHIN_REFERENCE_GROUP][
         "groupName"
@@ -237,6 +250,8 @@ def test_run_distribution_comparison_outputs_per_class_and_overall(tmp_path):
         "square": (1, 0, 2),
     }
     assert set(shape_rows[0]["distributionMetrics"].keys()) == set(DISTRIBUTION_METRIC_NAMES)
+    assert "ksStatistic" in shape_rows[0]["distributionMetrics"]
+    assert "ksPValue" not in shape_rows[0]["distributionMetrics"]
     assert shape_rows[0]["distributionMetrics"]["earthMoverDistance"] == (
         shape_rows[0]["distributionMetrics"]["wassersteinDistance"]
     )
@@ -248,6 +263,32 @@ def test_run_distribution_comparison_outputs_per_class_and_overall(tmp_path):
     )
     assert "baselineStats" not in shape_rows[0]
     assert "candidateStats" not in shape_rows[0]
+    assert shape_rows[0]["statisticalMode"] == "descriptive-pair-distances"
+    assert shape_rows[0]["independentUnit"] == "gesture-file"
+    assert shape_rows[0]["pairValuesIndependent"] is False
+    assert shape_rows[0]["statisticsSchemaVersion"] == 2
+    assert shape_rows[0]["removedInferentialFields"] == REMOVED_INFERENTIAL_FIELDS
+    for stats_name in (
+        "withinReferenceStats",
+        "withinComparisonStats",
+        "betweenGroupsStats",
+    ):
+        stats_keys = set(shape_rows[0][stats_name])
+        assert {
+            "mean",
+            "mdn",
+            "sd",
+            "variance",
+            "q05",
+            "q25",
+            "q50",
+            "q75",
+            "q95",
+            "skewness",
+            "kurtosis",
+            "n",
+        } <= stats_keys
+        assert not stats_keys.intersection(REMOVED_INFERENTIAL_FIELDS)
 
     overall_shape = next(row for row in overall_results if row["gestureMetric"] == "shapeError")
     assert overall_shape["scope"] == "overall"
@@ -279,6 +320,50 @@ def test_run_distribution_comparison_outputs_per_class_and_overall(tmp_path):
     }.issubset(
         {row["distributionMetric"] for row in payload["rawDistributionOutputs"]}
     )
+    assert all(
+        row["statisticsSchemaVersion"] == 2
+        and row["statisticalMode"] == "descriptive-pair-distances"
+        and row["independentUnit"] == "gesture-file"
+        and row["pairValuesIndependent"] is False
+        and row["removedInferentialFields"] == REMOVED_INFERENTIAL_FIELDS
+        for row in payload["rawDistributionOutputs"]
+    )
+
+
+def test_run_distribution_comparison_reports_dependent_pair_contract(tmp_path):
+    reference_dir = tmp_path / "reference"
+    candidate_dir = tmp_path / "candidate"
+
+    for index in range(4):
+        _write_csv(
+            reference_dir / "arrow" / f"ref-{index}.csv",
+            _sample_rows(index),
+        )
+    for index in range(2):
+        _write_csv(
+            candidate_dir / "arrow" / f"cand-{index}.csv",
+            _sample_rows(index + 10),
+        )
+
+    payload = Distribution.run_distribution_comparison(
+        str(reference_dir),
+        str(candidate_dir),
+        group_by="parent-dir",
+    )
+
+    shape_row = next(
+        row
+        for row in payload["results"]["perClass"]
+        if row["classKey"] == "arrow" and row["gestureMetric"] == "shapeError"
+    )
+
+    assert shape_row["referenceGroupCount"] == 4
+    assert shape_row["withinReferenceSampleCount"] == 6
+    assert shape_row["withinReferenceStats"]["n"] == 6
+    assert shape_row["independentUnit"] == "gesture-file"
+    assert shape_row["pairValuesIndependent"] is False
+    assert shape_row["statisticalMode"] == "descriptive-pair-distances"
+    assert shape_row["statisticsSchemaVersion"] == 2
 
 
 def test_run_distribution_comparison_keeps_stroke_error_stats_coherent(tmp_path):
@@ -361,8 +446,6 @@ def test_summary_stats_include_shape_quantiles_and_small_n_behavior():
         "mdn": 3.0,
         "sd": 1.58,
         "variance": 2.5,
-        "meanCi95Low": 1.04,
-        "meanCi95High": 4.96,
         "min": 1.0,
         "max": 5.0,
         "q05": 1.2,
@@ -376,24 +459,22 @@ def test_summary_stats_include_shape_quantiles_and_small_n_behavior():
     }
     for key, expected_value in expected_stats.items():
         assert stats[key] == expected_value
-    assert math.isnan(stats["normalityPValue"])
+    assert not set(stats).intersection(REMOVED_INFERENTIAL_FIELDS)
 
     one_value_stats = Distribution._summary_stats([2.0], 2)
     assert one_value_stats["variance"] == 0.0
-    assert one_value_stats["meanCi95Low"] == 2.0
-    assert one_value_stats["meanCi95High"] == 2.0
     assert one_value_stats["q05"] == 2.0
     assert one_value_stats["q95"] == 2.0
     assert math.isnan(one_value_stats["skewness"])
     assert math.isnan(one_value_stats["kurtosis"])
 
 
-def test_summary_stats_include_normality_p_value_when_sample_is_large_enough():
+def test_summary_stats_remain_descriptive_when_sample_is_large_enough():
     stats = Distribution._summary_stats([1, 2, 3, 4, 5, 6, 7, 8], 3)
 
     assert stats["skewness"] == 0.0
     assert stats["kurtosis"] == -1.2
-    assert stats["normalityPValue"] == 0.427
+    assert not set(stats).intersection(REMOVED_INFERENTIAL_FIELDS)
 
 
 def test_summary_stats_reject_impossible_aggregate_values():
@@ -413,7 +494,6 @@ def test_summary_stats_reject_impossible_aggregate_values():
                 "q95": 1.0,
                 "skewness": 0.0,
                 "kurtosis": 0.0,
-                "normalityPValue": 1.0,
                 "n": 3,
             }
         )
@@ -424,12 +504,10 @@ def test_summary_stats_return_nan_shape_fields_for_empty_samples():
 
     assert stats["n"] == 0
     assert math.isnan(stats["variance"])
-    assert math.isnan(stats["meanCi95Low"])
-    assert math.isnan(stats["meanCi95High"])
     assert math.isnan(stats["q50"])
     assert math.isnan(stats["skewness"])
     assert math.isnan(stats["kurtosis"])
-    assert math.isnan(stats["normalityPValue"])
+    assert not set(stats).intersection(REMOVED_INFERENTIAL_FIELDS)
 
 
 def test_discover_class_comparisons_require_reference_and_candidate_csvs(tmp_path):
@@ -498,7 +576,6 @@ def test_format_distribution_rows_csv_with_escaping_and_overall_row():
                     "wassersteinDistance": 1.0,
                     "energyDistance": 1.0,
                     "ksStatistic": 1.0,
-                    "ksPValue": 0.5,
                 },
             }
         ],
@@ -524,7 +601,6 @@ def test_format_distribution_rows_csv_with_escaping_and_overall_row():
                     "wassersteinDistance": 1.0,
                     "energyDistance": 1.0,
                     "ksStatistic": 1.0,
-                    "ksPValue": 0.5,
                 },
             }
         ],
@@ -533,32 +609,46 @@ def test_format_distribution_rows_csv_with_escaping_and_overall_row():
     output = Distribution.format_distribution_rows_csv(results)
     lines = output.splitlines()
     columns = lines[0].split(",")
-    assert columns[:3] == ["scope", "classKey", "gestureMetric"]
+    assert columns[:8] == [
+        "scope",
+        "classKey",
+        "gestureMetric",
+        "statisticalMode",
+        "independentUnit",
+        "pairValuesIndependent",
+        "statisticsSchemaVersion",
+        "removedInferentialFields",
+    ]
     assert "referenceGroupCount" in columns
     assert "comparisonGroupCount" in columns
     assert "withinReferenceFiniteSampleCount" in columns
     assert "withinComparisonFiniteSampleCount" in columns
     assert "betweenGroupsFiniteSampleCount" in columns
     assert "withinReferenceVariance" in columns
-    assert "withinReferenceMeanCi95Low" in columns
-    assert "withinReferenceMeanCi95High" in columns
     assert "withinReferenceQ95" in columns
     assert "withinReferenceSkewness" in columns
     assert "withinReferenceKurtosis" in columns
-    assert "withinReferenceNormalityPValue" in columns
     assert "withinComparisonVariance" in columns
-    assert "withinComparisonMeanCi95Low" in columns
-    assert "withinComparisonMeanCi95High" in columns
     assert "withinComparisonQ95" in columns
     assert "betweenGroupsVariance" in columns
-    assert "betweenGroupsMeanCi95Low" in columns
-    assert "betweenGroupsMeanCi95High" in columns
     assert "betweenGroupsQ95" in columns
+    assert "ksStatistic" in columns
+    assert "ksPValue" not in columns
+    assert not any("MeanCi95" in column for column in columns)
+    assert not any("NormalityPValue" in column for column in columns)
     assert "withinComparisonToReferenceMeanRatio" in columns
     assert "baselineMean" not in columns
     assert "candidateMean" not in columns
     assert '"arrow,fast"' in lines[1]
-    assert lines[2].startswith("overall,")
+    parsed_rows = list(csv.DictReader(lines))
+    assert parsed_rows[1]["scope"] == "overall"
+    assert parsed_rows[0]["statisticalMode"] == "descriptive-pair-distances"
+    assert parsed_rows[0]["independentUnit"] == "gesture-file"
+    assert parsed_rows[0]["pairValuesIndependent"] == "False"
+    assert parsed_rows[0]["statisticsSchemaVersion"] == "2"
+    assert parsed_rows[0]["removedInferentialFields"] == (
+        '["meanCi95Low","meanCi95High","normalityPValue","ksPValue"]'
+    )
 
     legacy_output = Distribution.format_distribution_rows_csv(
         results,
@@ -568,9 +658,7 @@ def test_format_distribution_rows_csv_with_escaping_and_overall_row():
     assert "baselineFiniteSampleCount" in legacy_columns
     assert "candidateFiniteSampleCount" in legacy_columns
     assert "baselineMean" in legacy_columns
-    assert "baselineMeanCi95Low" in legacy_columns
-    assert "baselineMeanCi95High" in legacy_columns
     assert "candidateMean" in legacy_columns
-    assert "candidateMeanCi95Low" in legacy_columns
-    assert "candidateMeanCi95High" in legacy_columns
+    assert not any("MeanCi95" in column for column in legacy_columns)
+    assert not any("NormalityPValue" in column for column in legacy_columns)
     assert "withinReferenceMean" not in legacy_columns

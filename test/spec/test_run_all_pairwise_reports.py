@@ -6,6 +6,13 @@ import pytest
 
 import run_all_pairwise_reports as PairwiseReports
 
+REMOVED_INFERENTIAL_FIELDS = [
+    "meanCi95Low",
+    "meanCi95High",
+    "normalityPValue",
+    "ksPValue",
+]
+
 
 def _write_csv(path: Path, offset=0):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -98,8 +105,18 @@ def test_run_all_pairwise_reports_writes_generic_distribution_summary(tmp_path):
     assert {row["mode"] for row in within_reference_rows} == {"within-reference"}
     assert {row["mode"] for row in between_group_rows} == {"between-groups"}
     assert len(distribution_rows) == len(baseline_stats_rows)
+    assert distribution_rows[0]["statisticalMode"] == "descriptive-pair-distances"
+    assert distribution_rows[0]["independentUnit"] == "gesture-file"
+    assert distribution_rows[0]["pairValuesIndependent"] == "False"
+    assert distribution_rows[0]["statisticsSchemaVersion"] == "2"
+    assert distribution_rows[0]["removedInferentialFields"] == (
+        '["meanCi95Low","meanCi95High","normalityPValue","ksPValue"]'
+    )
     assert distribution_rows[0]["wassersteinDistance"] != ""
     assert distribution_rows[0]["jensenShannonDivergence"] != ""
+    assert distribution_rows[0]["ksStatistic"] != ""
+    assert "ksPValue" not in distribution_rows[0]
+    assert not any("NormalityPValue" in column for column in distribution_rows[0])
     assert "baselineMean" not in distribution_rows[0]
     assert distribution_rows[0]["withinComparisonN"] == "1"
     assert distribution_rows[0]["betweenGroupsMean"] != ""
@@ -112,6 +129,11 @@ def test_run_all_pairwise_reports_writes_generic_distribution_summary(tmp_path):
     assert len(run_distribution_rows) == len(distribution_rows)
     assert top_distribution_rows == run_distribution_rows
     assert run_manifest["pairwiseRows"] == 2
+    assert run_manifest["statisticalMode"] == "descriptive-pair-distances"
+    assert run_manifest["independentUnit"] == "gesture-file"
+    assert run_manifest["pairValuesIndependent"] is False
+    assert run_manifest["statisticsSchemaVersion"] == 2
+    assert run_manifest["removedInferentialFields"] == REMOVED_INFERENTIAL_FIELDS
     assert run_manifest["baselineRows"] == 2
     assert run_manifest["withinReferenceRows"] == 1
     assert run_manifest["withinComparisonRows"] == 1
@@ -121,6 +143,15 @@ def test_run_all_pairwise_reports_writes_generic_distribution_summary(tmp_path):
     assert run_manifest["classes"][0]["baselineMode"] == "human-summary-baseline"
     assert run_manifest["classes"][0]["directDistributionMode"] == (
         "direct-distribution-pairs"
+    )
+    assert run_manifest["classes"][0]["statisticalMode"] == (
+        "descriptive-pair-distances"
+    )
+    assert run_manifest["classes"][0]["independentUnit"] == "gesture-file"
+    assert run_manifest["classes"][0]["pairValuesIndependent"] is False
+    assert run_manifest["classes"][0]["statisticsSchemaVersion"] == 2
+    assert run_manifest["classes"][0]["removedInferentialFields"] == (
+        REMOVED_INFERENTIAL_FIELDS
     )
     assert run_manifest["classes"][0]["withinComparisonRows"] == 1
     assert run_manifest["classes"][0]["withinReferenceRows"] == 1
@@ -192,7 +223,19 @@ def test_run_all_pairwise_reports_writes_generic_distribution_summary(tmp_path):
     assert len(raw_distribution_rows) == (
         len(distribution_rows) * len(PairwiseReports.DISTRIBUTION_OUTPUT_VALUE_COLUMNS)
     )
+    assert raw_distribution_rows[0]["statisticalMode"] == "descriptive-pair-distances"
+    assert raw_distribution_rows[0]["independentUnit"] == "gesture-file"
+    assert raw_distribution_rows[0]["pairValuesIndependent"] is False
+    assert raw_distribution_rows[0]["statisticsSchemaVersion"] == 2
+    assert raw_distribution_rows[0]["removedInferentialFields"] == (
+        REMOVED_INFERENTIAL_FIELDS
+    )
     assert report["metadata"]["pairwiseRows"] == 2
+    assert report["metadata"]["statisticalMode"] == "descriptive-pair-distances"
+    assert report["metadata"]["independentUnit"] == "gesture-file"
+    assert report["metadata"]["pairValuesIndependent"] is False
+    assert report["metadata"]["statisticsSchemaVersion"] == 2
+    assert report["metadata"]["removedInferentialFields"] == REMOVED_INFERENTIAL_FIELDS
     assert report["metadata"]["withinReferenceRows"] == 1
     assert report["metadata"]["withinComparisonRows"] == 1
     assert report["metadata"]["betweenGroupsRows"] == 4
@@ -204,6 +247,19 @@ def test_run_all_pairwise_reports_writes_generic_distribution_summary(tmp_path):
     assert report["files"]["summaryDistribution"] == str(
         combined_dir / "summary_distribution.csv"
     )
+    assert "ksPValue" not in report["columns"]["distribution"]
+    assert not any(
+        "NormalityPValue" in column for column in report["columns"]["distribution"]
+    )
+    combined_readme = (combined_dir / "README.txt").read_text(encoding="utf-8")
+    assert "descriptive-pair-distances" in combined_readme
+    assert "gesture-file" in combined_readme
+    assert '"ksPValue"' in combined_readme
+    assert manifest["statisticalMode"] == "descriptive-pair-distances"
+    assert manifest["independentUnit"] == "gesture-file"
+    assert manifest["pairValuesIndependent"] is False
+    assert manifest["statisticsSchemaVersion"] == 2
+    assert manifest["removedInferentialFields"] == REMOVED_INFERENTIAL_FIELDS
     assert manifest["combinedOutputs"]["directory"] == str(combined_dir)
 
 

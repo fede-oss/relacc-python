@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import json
 import statistics
 import warnings
 from dataclasses import dataclass
@@ -41,8 +42,6 @@ SUMMARY_STAT_NAMES: Tuple[str, ...] = (
     "mdn",
     "sd",
     "variance",
-    "meanCi95Low",
-    "meanCi95High",
     "min",
     "max",
     "q05",
@@ -52,8 +51,17 @@ SUMMARY_STAT_NAMES: Tuple[str, ...] = (
     "q95",
     "skewness",
     "kurtosis",
-    "normalityPValue",
     "n",
+)
+STATISTICAL_MODE = "descriptive-pair-distances"
+INDEPENDENT_UNIT = "gesture-file"
+PAIR_VALUES_INDEPENDENT = False
+STATISTICS_SCHEMA_VERSION = 2
+REMOVED_INFERENTIAL_FIELDS: Tuple[str, ...] = (
+    "meanCi95Low",
+    "meanCi95High",
+    "normalityPValue",
+    "ksPValue",
 )
 WITHIN_REFERENCE_GROUP = "withinReference"
 WITHIN_COMPARISON_GROUP = "withinComparison"
@@ -257,39 +265,6 @@ def _shape_statistic(
     return _rounded_stat(value, round_precision)
 
 
-def _normality_p_value(
-    finite_values: Sequence[float],
-    round_precision: int | None,
-) -> float:
-    if len(finite_values) < 8 or len(set(finite_values)) == 1:
-        return _rounded_stat(float("nan"), round_precision)
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        _, p_value = stats.normaltest(finite_values)
-    return _rounded_stat(float(p_value), round_precision)
-
-
-def _mean_ci_95(
-    mean: float,
-    sd: float,
-    n: int,
-    round_precision: int | None,
-) -> tuple[float, float]:
-    if n == 0:
-        empty = _rounded_stat(float("nan"), round_precision)
-        return empty, empty
-    if n == 1 or sd == 0:
-        rounded_mean = _rounded_stat(mean, round_precision)
-        return rounded_mean, rounded_mean
-
-    margin = float(stats.t.ppf(0.975, n - 1)) * (sd / math.sqrt(n))
-    return (
-        _rounded_stat(mean - margin, round_precision),
-        _rounded_stat(mean + margin, round_precision),
-    )
-
-
 def _summary_stats(values: Sequence[float], round_precision: int | None):
     finite_values = [value for value in values if math.isfinite(value)]
     n = len(finite_values)
@@ -303,15 +278,12 @@ def _summary_stats(values: Sequence[float], round_precision: int | None):
     variance = statistics.variance(finite_values) if n > 1 else 0.0
     minimum = min(finite_values)
     maximum = max(finite_values)
-    mean_ci_95_low, mean_ci_95_high = _mean_ci_95(mean, sd, n, round_precision)
 
     return _validate_summary_stats({
         "mean": _rounded_stat(mean, round_precision),
         "mdn": _rounded_stat(mdn, round_precision),
         "sd": _rounded_stat(sd, round_precision),
         "variance": _rounded_stat(variance, round_precision),
-        "meanCi95Low": mean_ci_95_low,
-        "meanCi95High": mean_ci_95_high,
         "min": _rounded_stat(minimum, round_precision),
         "max": _rounded_stat(maximum, round_precision),
         "q05": _rounded_stat(_quantile(sorted_values, 0.05), round_precision),
@@ -331,7 +303,6 @@ def _summary_stats(values: Sequence[float], round_precision: int | None):
             lambda series: stats.kurtosis(series, fisher=True, bias=False),
             round_precision,
         ),
-        "normalityPValue": _normality_p_value(finite_values, round_precision),
         "n": n,
     })
 
@@ -376,6 +347,25 @@ def _add_legacy_result_fields(result: Dict[str, object]):
     return result
 
 
+def _statistical_contract_fields() -> Dict[str, object]:
+    return {
+        "statisticalMode": STATISTICAL_MODE,
+        "independentUnit": INDEPENDENT_UNIT,
+        "pairValuesIndependent": PAIR_VALUES_INDEPENDENT,
+        "statisticsSchemaVersion": STATISTICS_SCHEMA_VERSION,
+        "removedInferentialFields": list(REMOVED_INFERENTIAL_FIELDS),
+    }
+
+
+def _statistical_contract_csv_fields() -> Dict[str, object]:
+    fields = _statistical_contract_fields()
+    fields["removedInferentialFields"] = json.dumps(
+        fields["removedInferentialFields"],
+        separators=(",", ":"),
+    )
+    return fields
+
+
 def _build_result_entry(
     scope: str,
     class_key: str | None,
@@ -392,6 +382,7 @@ def _build_result_entry(
     within_comparison_stats = _summary_stats(within_comparison_values, round_precision)
     between_group_stats = _summary_stats(between_group_values, round_precision)
     result = {
+        **_statistical_contract_fields(),
         "scope": scope,
         "classKey": class_key,
         "gestureMetric": gesture_metric,
@@ -593,6 +584,7 @@ def _raw_distribution_outputs(results: Sequence[Dict[str, object]]):
             "schemaVersion": 1,
             "recordType": "rawDistributionOutput",
             "comparisonMode": DISTRIBUTION_MODE,
+            **_statistical_contract_fields(),
             "scope": result.get("scope"),
             "classKey": result.get("classKey"),
             "gestureMetric": result.get("gestureMetric"),
@@ -731,6 +723,7 @@ def run_distribution_comparison(
     return {
         "metadata": {
             "comparisonMode": DISTRIBUTION_MODE,
+            **_statistical_contract_fields(),
             "groupBy": group_by,
             "referenceGroupName": reference_group_name,
             "comparisonGroupName": comparison_group_name,
@@ -798,6 +791,11 @@ def _generic_distribution_columns() -> List[str]:
         "scope",
         "classKey",
         "gestureMetric",
+        "statisticalMode",
+        "independentUnit",
+        "pairValuesIndependent",
+        "statisticsSchemaVersion",
+        "removedInferentialFields",
         "referenceGroupCount",
         "comparisonGroupCount",
         "withinReferenceSampleCount",
@@ -826,6 +824,11 @@ def _legacy_distribution_columns() -> List[str]:
         "scope",
         "classKey",
         "gestureMetric",
+        "statisticalMode",
+        "independentUnit",
+        "pairValuesIndependent",
+        "statisticsSchemaVersion",
+        "removedInferentialFields",
         "referenceCount",
         "candidateCount",
         "baselineSampleCount",
@@ -858,6 +861,7 @@ def format_distribution_rows_csv(
         distribution_metrics = row.get("distributionMetrics", {})
         if legacy_column_names:
             flat_row = {
+                **_statistical_contract_csv_fields(),
                 "scope": row.get("scope"),
                 "classKey": row.get("classKey"),
                 "gestureMetric": row.get("gestureMetric"),
@@ -872,6 +876,7 @@ def format_distribution_rows_csv(
             _add_group_stats_to_row(flat_row, "candidate", between_group_stats)
         else:
             flat_row = {
+                **_statistical_contract_csv_fields(),
                 "scope": row.get("scope"),
                 "classKey": row.get("classKey"),
                 "gestureMetric": row.get("gestureMetric"),

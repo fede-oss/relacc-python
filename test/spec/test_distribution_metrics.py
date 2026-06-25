@@ -25,7 +25,7 @@ def test_compute_distribution_metrics_default_values():
     )
     ks_result = ks_2samp(reference, candidate)
     assert metrics["ksStatistic"] == pytest.approx(ks_result.statistic)
-    assert metrics["ksPValue"] == pytest.approx(ks_result.pvalue)
+    assert "ksPValue" not in metrics
     assert metrics["klDivergenceReferenceToCandidate"] == pytest.approx(math.log(2) / 4)
     assert metrics["klDivergenceCandidateToReference"] == pytest.approx(math.log(2) / 4)
     assert metrics["jeffreysDivergence"] == pytest.approx(math.log(2) / 2)
@@ -69,6 +69,7 @@ def test_distribution_metric_semantics_identify_symmetric_and_asymmetric_metrics
     assert semantics["earthMoverDistance"]["symmetry"] == DistributionMetrics.SYMMETRIC
     assert semantics["wassersteinDistanceP2"]["symmetry"] == DistributionMetrics.SYMMETRIC
     assert semantics["totalVariationDistance"]["symmetry"] == DistributionMetrics.SYMMETRIC
+    assert "ksPValue" not in semantics
     assert (
         semantics["klDivergenceReferenceToCandidate"]["symmetry"]
         == DistributionMetrics.ASYMMETRIC

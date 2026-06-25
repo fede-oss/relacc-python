@@ -61,6 +61,16 @@ from relacc.utils.runlog import (
 DEFAULT_DATASETS_ROOT = Path("/Users/fede/S6-Project/datasets")
 DEFAULT_RATE = 24
 DEFAULT_VARIANT_LABEL = "root"
+STATISTICAL_MODE = "descriptive-pair-distances"
+INDEPENDENT_UNIT = "gesture-file"
+PAIR_VALUES_INDEPENDENT = False
+STATISTICS_SCHEMA_VERSION = 2
+REMOVED_INFERENTIAL_FIELDS = (
+    "meanCi95Low",
+    "meanCi95High",
+    "normalityPValue",
+    "ksPValue",
+)
 
 PAIRWISE_COLUMNS = (
     "runId",
@@ -123,6 +133,11 @@ STATS_COLUMNS = (
 )
 
 DISTRIBUTION_COLUMNS = (
+    "statisticalMode",
+    "independentUnit",
+    "pairValuesIndependent",
+    "statisticsSchemaVersion",
+    "removedInferentialFields",
     "runId",
     "source",
     "dataset",
@@ -145,7 +160,6 @@ DISTRIBUTION_COLUMNS = (
     "withinReferenceQ95",
     "withinReferenceSkewness",
     "withinReferenceKurtosis",
-    "withinReferenceNormalityPValue",
     "withinComparisonN",
     "withinComparisonFiniteN",
     "withinComparisonMean",
@@ -161,7 +175,6 @@ DISTRIBUTION_COLUMNS = (
     "withinComparisonQ95",
     "withinComparisonSkewness",
     "withinComparisonKurtosis",
-    "withinComparisonNormalityPValue",
     "betweenGroupsN",
     "betweenGroupsFiniteN",
     "betweenGroupsMean",
@@ -177,7 +190,6 @@ DISTRIBUTION_COLUMNS = (
     "betweenGroupsQ95",
     "betweenGroupsSkewness",
     "betweenGroupsKurtosis",
-    "betweenGroupsNormalityPValue",
     *DISTRIBUTION_METRIC_NAMES,
     "normalizedWassersteinDistance",
     "betweenGroupsMeanDelta",
@@ -297,6 +309,25 @@ def _format_duration(seconds: float) -> str:
     if hours:
         return f"{hours:d}:{minutes:02d}:{secs:02d}"
     return f"{minutes:d}:{secs:02d}"
+
+
+def _statistical_contract_fields() -> Dict[str, object]:
+    return {
+        "statisticalMode": STATISTICAL_MODE,
+        "independentUnit": INDEPENDENT_UNIT,
+        "pairValuesIndependent": PAIR_VALUES_INDEPENDENT,
+        "statisticsSchemaVersion": STATISTICS_SCHEMA_VERSION,
+        "removedInferentialFields": list(REMOVED_INFERENTIAL_FIELDS),
+    }
+
+
+def _statistical_contract_csv_fields() -> Dict[str, object]:
+    fields = _statistical_contract_fields()
+    fields["removedInferentialFields"] = json.dumps(
+        fields["removedInferentialFields"],
+        separators=(",", ":"),
+    )
+    return fields
 
 
 class ProgressReporter:
@@ -829,13 +860,6 @@ def _shape_statistic(values: Sequence[float], fn):
     return value if math.isfinite(value) else None
 
 
-def _normality_p_value(values: Sequence[float]):
-    if len(values) < 8 or len(set(values)) <= 1:
-        return None
-    value = float(scipy_stats.normaltest(values).pvalue)
-    return value if math.isfinite(value) else None
-
-
 def _distribution_summary(values: Sequence[float], total_n: int, round_precision: int | None):
     finite_values = list(values)
 
@@ -861,7 +885,6 @@ def _distribution_summary(values: Sequence[float], total_n: int, round_precision
             "q95": None,
             "skewness": None,
             "kurtosis": None,
-            "normalityPValue": None,
         }
 
     sorted_values = sorted(finite_values)
@@ -893,7 +916,6 @@ def _distribution_summary(values: Sequence[float], total_n: int, round_precision
                 lambda series: scipy_stats.kurtosis(series, fisher=True, bias=False),
             )
         ),
-        "normalityPValue": rounded(_normality_p_value(finite_values)),
     }
     return _validate_bounded_stats(
         summary,
@@ -982,6 +1004,7 @@ def _lightweight_distribution_rows(
         wasserstein = distribution_metrics.get("wassersteinDistance")
 
         row = {
+            **_statistical_contract_csv_fields(),
             "runId": metadata_row.get("runId"),
             "source": metadata_row.get("source"),
             "dataset": metadata_row.get("dataset"),
@@ -1004,9 +1027,6 @@ def _lightweight_distribution_rows(
             "withinReferenceQ95": within_reference_stats.get("q95"),
             "withinReferenceSkewness": within_reference_stats.get("skewness"),
             "withinReferenceKurtosis": within_reference_stats.get("kurtosis"),
-            "withinReferenceNormalityPValue": within_reference_stats.get(
-                "normalityPValue"
-            ),
             "withinComparisonN": within_comparison_stats.get("n"),
             "withinComparisonFiniteN": within_comparison_stats.get("finiteN"),
             "withinComparisonMean": within_comparison_mean,
@@ -1022,9 +1042,6 @@ def _lightweight_distribution_rows(
             "withinComparisonQ95": within_comparison_stats.get("q95"),
             "withinComparisonSkewness": within_comparison_stats.get("skewness"),
             "withinComparisonKurtosis": within_comparison_stats.get("kurtosis"),
-            "withinComparisonNormalityPValue": within_comparison_stats.get(
-                "normalityPValue"
-            ),
             "betweenGroupsN": between_group_stats.get("n"),
             "betweenGroupsFiniteN": between_group_stats.get("finiteN"),
             "betweenGroupsMean": between_group_mean,
@@ -1040,9 +1057,6 @@ def _lightweight_distribution_rows(
             "betweenGroupsQ95": between_group_stats.get("q95"),
             "betweenGroupsSkewness": between_group_stats.get("skewness"),
             "betweenGroupsKurtosis": between_group_stats.get("kurtosis"),
-            "betweenGroupsNormalityPValue": between_group_stats.get(
-                "normalityPValue"
-            ),
             "normalizedWassersteinDistance": rounded(
                 _ratio(wasserstein, within_reference_sd)
             ),
@@ -1090,6 +1104,7 @@ def _raw_distribution_outputs_from_rows(
         base = {
             "schemaVersion": 1,
             "recordType": "rawDistributionOutput",
+            **_statistical_contract_fields(),
             "runId": row.get("runId"),
             "source": row.get("source"),
             "dataset": row.get("dataset"),
@@ -1188,6 +1203,7 @@ def write_combined_report_exports(
             "metadata": {
                 "mode": manifest["mode"],
                 "baselineMode": manifest["baselineMode"],
+                **_statistical_contract_fields(),
                 "datasetsRoot": manifest["datasetsRoot"],
                 "outputDir": manifest["outputDir"],
                 "groupBy": manifest["groupBy"],
@@ -1269,6 +1285,13 @@ def write_combined_report_exports(
         "Combined Evaluation Outputs",
         [
             "These files concatenate rows across all completed source/dataset/variant runs.",
+            (
+                "Distribution outputs use descriptive-pair-distances mode: "
+                "independentUnit=gesture-file, pairValuesIndependent=false, "
+                f"statisticsSchemaVersion={STATISTICS_SCHEMA_VERSION}, "
+                "removedInferentialFields="
+                f"{json.dumps(list(REMOVED_INFERENTIAL_FIELDS), separators=(',', ':'))}."
+            ),
             "Use raw_metrics.jsonl for per-comparison histograms when you want pre-melted long-form metric samples.",
             "Use distribution.csv or summary_distribution.csv for aggregate plots that do not need every raw pair.",
         ],
@@ -1460,6 +1483,7 @@ def _compare_class(
         round_precision,
     )
     metadata = {
+        **_statistical_contract_fields(),
         "runId": run_id,
         "source": source_name,
         "dataset": dataset_name,
@@ -2018,6 +2042,7 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
         "outputDir": str(output_root),
         "mode": "all-files-reference-summary-pairwise",
         "baselineMode": "human-summary-baseline",
+        **_statistical_contract_fields(),
         "rate": rate,
         "roundPrecision": round_precision,
         "alignment": alignment,
@@ -2323,6 +2348,7 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
                     direct_raw_metric_outputs = []
                     direct_metadata = {
                         "mode": "direct-distribution-pairs",
+                        **_statistical_contract_fields(),
                         "referenceCount": len(distribution_references),
                         "candidateCount": len(distribution_candidates),
                         "withinReferencePairs": 0,
@@ -2483,6 +2509,7 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
                     class_manifests.append(
                         {
                             **class_metadata,
+                            **_statistical_contract_fields(),
                             "baselineMode": baseline_metadata["mode"],
                             "directDistributionMode": direct_metadata["mode"],
                             "outputDir": str(class_output_dir),
@@ -2519,6 +2546,7 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
                     progress.finish_class(run_id, class_key, len(rows))
 
                 run_manifest = {
+                    **_statistical_contract_fields(),
                     "id": run_id,
                     "source": source_name,
                     "dataset": dataset_name,

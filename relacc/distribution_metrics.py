@@ -107,17 +107,6 @@ def _ks_statistic(
     return float(ks_2samp(reference, candidate).statistic)
 
 
-def _ks_pvalue(
-    reference_values: Iterable[float],
-    candidate_values: Iterable[float],
-) -> float:
-    reference = _finite_values(reference_values)
-    candidate = _finite_values(candidate_values)
-    if not _has_values(reference, candidate):
-        return float("nan")
-    return float(ks_2samp(reference, candidate).pvalue)
-
-
 def _histogram_bin_count(reference_size: int, candidate_size: int) -> int:
     return max(1, math.ceil(math.sqrt(reference_size + candidate_size)))
 
@@ -272,12 +261,6 @@ _DISTRIBUTION_METRIC_DEFINITIONS: Tuple[DistributionMetricDefinition, ...] = (
         _ks_statistic,
         SYMMETRIC,
         "Kolmogorov-Smirnov two-sample statistic.",
-    ),
-    DistributionMetricDefinition(
-        "ksPValue",
-        _ks_pvalue,
-        SYMMETRIC,
-        "Kolmogorov-Smirnov two-sample test p-value.",
     ),
     DistributionMetricDefinition(
         "klDivergenceReferenceToCandidate",

@@ -299,7 +299,7 @@ function renderDistributionTable(rows) {
       <table>
         <thead>
           <tr>
-            <th>Metric</th><th>Baseline mean</th><th>Candidate mean</th><th>Wasserstein</th><th>Energy</th><th>KS stat</th><th>KS p</th>
+            <th>Metric</th><th>Baseline mean</th><th>Candidate mean</th><th>Wasserstein</th><th>Energy</th><th>KS stat</th>
           </tr>
         </thead>
         <tbody>
@@ -311,7 +311,6 @@ function renderDistributionTable(rows) {
               <td class="metric-value">${compactNumber(row.distributionMetrics?.wassersteinDistance)}</td>
               <td class="metric-value">${compactNumber(row.distributionMetrics?.energyDistance)}</td>
               <td class="metric-value">${compactNumber(row.distributionMetrics?.ksStatistic)}</td>
-              <td class="metric-value">${compactNumber(row.distributionMetrics?.ksPValue)}</td>
             </tr>
           `).join("")}
         </tbody>
