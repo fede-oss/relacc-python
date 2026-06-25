@@ -73,6 +73,25 @@ def test_create_job_reports_bad_zip():
     assert public["validation"]["issues"][0]["severity"] == "error"
 
 
+def test_direct_job_validation_uses_pipeline_layout_matching():
+    reference = _zip_bytes(
+        {"projected3Dsignatures/realTO/78_14.csv": _sample(0)}
+    )
+    candidate = _zip_bytes({"projected3Dsignatures/78_14.csv": _sample(2)})
+
+    public = create_job(reference, candidate, EvaluationConfig(mode="direct"))
+
+    assert public["status"] == "queued"
+    assert public["validation"]["mode"]["matchedPairCount"] == 1
+    assert public["validation"]["mode"]["missingInCandidate"] == []
+    assert public["validation"]["mode"]["missingInReference"] == []
+
+    run_job(public["id"])
+    job = get_job(public["id"])
+    assert job["status"] == "completed"
+    assert job["result"]["metadata"]["pairCount"] == 1
+
+
 def test_create_group_job_accepts_multiple_comparisons():
     reference = _zip_bytes({"ref-a.csv": _sample(0), "ref-b.csv": _sample(1)})
     candidate_a = _zip_bytes({"cand-a.csv": _sample(2)})

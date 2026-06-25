@@ -2,18 +2,36 @@ from __future__ import annotations
 
 import hashlib
 import random
-import re
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
 from ._common import load_csv_entries
-from .distribution import (
+from .dataset_discovery import (
+    CLASS_SCHEME_AUTO,
+    CLASS_SCHEME_FILENAME_LABEL,
+    CLASS_SCHEME_PARENT_DIR,
+    CLASS_SCHEMES,
     GROUP_BY_FILENAME_LABEL,
     GROUP_BY_MODES,
     GROUP_BY_PARENT_DIR,
-    _filename_label_class_key,
-    _normalize_group_by,
+    SIGNATURE_DATASETS,
+    SOURCE_FOLDER_NAMES,
+    auto_class_key,
+    class_key_for_relative_path,
+    dataset_and_class_for_relative_path,
+    dataset_key_from_parts,
+    dataset_name_for_class,
+    filename_label_class_key,
+    input_dataset_hint,
+    mobiletouchdb_class_key,
+    normalize_class_scheme,
+    normalize_group_by,
+    parent_dir_dataset_and_class,
+    parent_dir_dataset_and_class_from_parts,
+    raton_class_key,
+    safe_filename_label_class_key,
+    signature_class_key,
+    strip_source_folder_parts,
 )
 
 
@@ -25,23 +43,6 @@ DEFAULT_REFERENCE_SOURCE_NAME = "human"
 DEFAULT_CANDIDATE_SOURCE_NAME = "generated"
 STABLE_SAMPLING_MODE = "stable"
 SEEDED_RANDOM_SAMPLING_MODE = "seeded-random"
-CLASS_SCHEME_AUTO = "auto"
-CLASS_SCHEME_FILENAME_LABEL = "filename-label"
-CLASS_SCHEME_PARENT_DIR = "parent-dir"
-CLASS_SCHEMES: Tuple[str, str, str] = (
-    CLASS_SCHEME_AUTO,
-    CLASS_SCHEME_FILENAME_LABEL,
-    CLASS_SCHEME_PARENT_DIR,
-)
-SOURCE_FOLDER_NAMES: Tuple[str, str, str] = ("realTO", "syntTO", "recoTO")
-SIGNATURE_DATASETS = {
-    "biosecurid",
-    "ebiosig_finger",
-    "ebiosig_stylus",
-    "mcyt",
-    "projected3dsignatures",
-    "visual",
-}
 
 
 @dataclass(frozen=True)
@@ -69,120 +70,57 @@ def _validate_sample_limit(sample_limit: int) -> int:
 
 
 def _normalize_class_scheme(class_scheme: str | None) -> str:
-    scheme = (class_scheme or CLASS_SCHEME_AUTO).strip().lower()
-    if scheme not in CLASS_SCHEMES:
-        raise ValueError(
-            "Invalid class scheme (%s). Supported values: auto, filename-label, parent-dir."
-            % class_scheme
-        )
-    return scheme
+    return normalize_class_scheme(class_scheme)
+
+
+def _normalize_group_by(group_by: str | None) -> str:
+    return normalize_group_by(group_by)
 
 
 def _strip_source_folder_parts(parts: Sequence[str]) -> Tuple[str, ...]:
-    return tuple(part for part in parts if part not in SOURCE_FOLDER_NAMES)
+    return strip_source_folder_parts(parts)
 
 
 def _dataset_key_from_parts(parts: Sequence[str]) -> str:
-    if len(parts) == 0:
-        return "."
-    return "/".join(parts)
+    return dataset_key_from_parts(parts)
 
 
 def _input_dataset_hint(input_path: str) -> str | None:
-    path = Path(input_path)
-    if path.is_file():
-        path = path.parent
-    if path.name in SOURCE_FOLDER_NAMES:
-        return path.parent.name
-    return path.name or None
+    return input_dataset_hint(input_path)
 
 
 def _parent_dir_dataset_and_class_from_parts(
     parent_parts: Sequence[str],
 ) -> Tuple[str, str]:
-    if len(parent_parts) == 0:
-        return ".", "."
-    if len(parent_parts) == 1:
-        return ".", parent_parts[0]
-    return parent_parts[0], "/".join(parent_parts[1:])
+    return parent_dir_dataset_and_class_from_parts(parent_parts)
 
 
 def _parent_dir_dataset_and_class(relative_csv_path: str) -> Tuple[str, str]:
-    parts = relative_csv_path.split("/")
-    parent_parts = _strip_source_folder_parts(parts[:-1])
-    return _parent_dir_dataset_and_class_from_parts(parent_parts)
+    return parent_dir_dataset_and_class(relative_csv_path)
 
 
 def _mobiletouchdb_class_key(filename: str) -> str | None:
-    match = re.search(r"_s\d+_([^_]+)$", Path(filename).stem)
-    if match:
-        return match.group(1)
-    return None
+    return mobiletouchdb_class_key(filename)
 
 
 def _signature_class_key(filename: str) -> str | None:
-    stem = Path(filename).stem
-    match = re.match(r"^(?:W\d+_)?(\d+)[gv]\d+$", stem)
-    if match:
-        return match.group(1)
-    match = re.match(r"^(\d+)_\d+$", stem)
-    if match:
-        return match.group(1)
-    return None
+    return signature_class_key(filename)
 
 
 def _raton_class_key(filename: str) -> str | None:
-    stem = Path(filename).stem
-    if "-" not in stem:
-        return None
-    return stem.split("-", 1)[0]
+    return raton_class_key(filename)
 
 
 def _dataset_name_for_class(dataset_key: str, dataset_hint: str | None) -> str | None:
-    if dataset_key != ".":
-        return dataset_key.split("/", 1)[0]
-    return dataset_hint
+    return dataset_name_for_class(dataset_key, dataset_hint)
 
 
 def _safe_filename_label_class_key(relative_csv_path: str) -> str | None:
-    try:
-        return _filename_label_class_key(relative_csv_path)
-    except ValueError:
-        return None
+    return safe_filename_label_class_key(relative_csv_path)
 
 
 def _auto_class_key(relative_csv_path: str, dataset_name: str | None) -> str:
-    filename = relative_csv_path.rsplit("/", 1)[-1]
-    normalized_dataset = (dataset_name or "").lower()
-
-    if normalized_dataset == "mobiletouchdb":
-        class_key = _mobiletouchdb_class_key(filename)
-        if class_key is not None:
-            return class_key
-
-    if normalized_dataset == "raton":
-        class_key = _raton_class_key(filename)
-        if class_key is not None:
-            return class_key
-
-    if normalized_dataset in SIGNATURE_DATASETS:
-        class_key = _signature_class_key(filename)
-        if class_key is not None:
-            return class_key
-
-    for class_key in [
-        _mobiletouchdb_class_key(filename),
-        _signature_class_key(filename),
-        _safe_filename_label_class_key(relative_csv_path),
-    ]:
-        if class_key is not None:
-            return class_key
-
-    raise ValueError(
-        "Cannot derive class label from filename (%s). Use class_scheme='parent-dir' "
-        "for directory-structured classes or provide files with a supported naming pattern."
-        % relative_csv_path
-    )
+    return auto_class_key(relative_csv_path, dataset_name)
 
 
 def _class_key_for_relative_path(
@@ -190,11 +128,12 @@ def _class_key_for_relative_path(
     class_scheme: str,
     dataset_name: str | None,
 ) -> str:
-    if class_scheme == CLASS_SCHEME_FILENAME_LABEL:
-        return _filename_label_class_key(relative_csv_path)
-    if class_scheme == CLASS_SCHEME_AUTO:
-        return _auto_class_key(relative_csv_path, dataset_name)
-    return _parent_dir_dataset_and_class(relative_csv_path)[1]
+    return class_key_for_relative_path(
+        relative_csv_path,
+        GROUP_BY_FILENAME_LABEL,
+        class_scheme,
+        dataset_name,
+    )
 
 
 def _dataset_and_class_for_relative_path(
@@ -203,21 +142,12 @@ def _dataset_and_class_for_relative_path(
     class_scheme: str = CLASS_SCHEME_AUTO,
     dataset_hint: str | None = None,
 ) -> Tuple[str, str]:
-    parts = relative_csv_path.split("/")
-    parent_parts = _strip_source_folder_parts(parts[:-1])
-
-    if group_by == GROUP_BY_FILENAME_LABEL:
-        dataset_key = _dataset_key_from_parts(parent_parts)
-        dataset_name = _dataset_name_for_class(dataset_key, dataset_hint)
-        return (
-            dataset_key,
-            _class_key_for_relative_path(
-                relative_csv_path,
-                class_scheme,
-                dataset_name,
-            ),
-        )
-    return _parent_dir_dataset_and_class_from_parts(parent_parts)
+    return dataset_and_class_for_relative_path(
+        relative_csv_path,
+        group_by,
+        class_scheme,
+        dataset_hint,
+    )
 
 
 def load_reporting_entries(

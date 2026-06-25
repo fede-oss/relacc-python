@@ -28,15 +28,18 @@ from ._common import (
     normalize_summary_shape,
     sampling_rate_for_sets,
 )
+from .dataset_discovery import (
+    GROUP_BY_FILENAME_LABEL,
+    GROUP_BY_MODES,
+    GROUP_BY_PARENT_DIR,
+    class_key_for_relative_path,
+    filename_label_class_key,
+    normalize_group_by,
+    parent_dir_class_key,
+)
 
 
 DISTRIBUTION_MODE = "distribution"
-GROUP_BY_FILENAME_LABEL = "filename-label"
-GROUP_BY_PARENT_DIR = "parent-dir"
-GROUP_BY_MODES: Tuple[str, str] = (
-    GROUP_BY_FILENAME_LABEL,
-    GROUP_BY_PARENT_DIR,
-)
 SUMMARY_STAT_NAMES: Tuple[str, ...] = (
     "mean",
     "mdn",
@@ -90,30 +93,19 @@ class ClassComparisonSpec:
 
 
 def _normalize_group_by(group_by: str | None):
-    mode = (group_by or GROUP_BY_FILENAME_LABEL).strip().lower()
-    if mode not in GROUP_BY_MODES:
-        raise ValueError(
-            "Invalid group-by mode (%s). Supported values: filename-label, parent-dir."
-            % group_by
-        )
-    return mode
+    return normalize_group_by(group_by)
 
 
 def _filename_label_class_key(relative_csv_path: str) -> str:
-    return infer_label_from_filename(relative_csv_path, "class")
+    return filename_label_class_key(relative_csv_path)
 
 
 def _parent_dir_class_key(relative_csv_path: str) -> str:
-    parts = relative_csv_path.split("/")
-    if len(parts) == 1:
-        return "."
-    return "/".join(parts[:-1])
+    return parent_dir_class_key(relative_csv_path)
 
 
 def _class_key_for_relative_path(relative_csv_path: str, group_by: str) -> str:
-    if group_by == GROUP_BY_FILENAME_LABEL:
-        return _filename_label_class_key(relative_csv_path)
-    return _parent_dir_class_key(relative_csv_path)
+    return class_key_for_relative_path(relative_csv_path, group_by)
 
 
 def _group_entries_by_class(entries, group_by: str):

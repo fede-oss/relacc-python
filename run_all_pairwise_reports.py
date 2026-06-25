@@ -34,16 +34,18 @@ from relacc.pipeline._common import (
     sampling_rate_for_sets,
     write_jsonl_rows,
 )
-from relacc.pipeline.reporting import (
+from relacc.pipeline.dataset_discovery import (
     CLASS_SCHEME_AUTO,
     CLASS_SCHEMES,
     GROUP_BY_FILENAME_LABEL,
     GROUP_BY_MODES,
+    dataset_and_class_for_relative_path,
+    input_dataset_hint,
+    normalize_class_scheme,
+    normalize_group_by,
+)
+from relacc.pipeline.reporting import (
     ReportingEntry,
-    _dataset_and_class_for_relative_path,
-    _input_dataset_hint,
-    _normalize_class_scheme,
-    _normalize_group_by,
 )
 from relacc.utils.math import MathUtil
 from relacc.utils.runlog import (
@@ -564,12 +566,12 @@ def _load_reporting_entries(
     class_scheme: str,
     warnings: List[Dict[str, str]],
 ) -> List[ReportingEntry]:
-    dataset_hint = _input_dataset_hint(str(input_path))
+    dataset_hint = input_dataset_hint(str(input_path))
     entries: List[ReportingEntry] = []
     for key, path in sorted(list_csv_files(input_path).items()):
         try:
             points = read_points(str(path))
-            dataset_key, class_key = _dataset_and_class_for_relative_path(
+            dataset_key, class_key = dataset_and_class_for_relative_path(
                 key,
                 group_by,
                 class_scheme,
@@ -1863,11 +1865,11 @@ def _count_run_candidates(
     class_scheme: str,
     warnings: List[Dict[str, str]],
 ) -> tuple[int, Dict[str, int]]:
-    dataset_hint = _input_dataset_hint(str(candidate_input))
+    dataset_hint = input_dataset_hint(str(candidate_input))
     counts: Dict[str, int] = defaultdict(int)
     for key, path in sorted(list_csv_files(candidate_input).items()):
         try:
-            _, class_key = _dataset_and_class_for_relative_path(
+            _, class_key = dataset_and_class_for_relative_path(
                 key,
                 group_by,
                 class_scheme,
@@ -1998,8 +2000,8 @@ def _run_reports(opt, output_root: Path, paths=None, metadata=None):
     alignment = PtAlignType.normalize(opt.alignment)
     dtw_window = _int_cast(opt.dtw_window)
     summary_shape = normalize_summary_shape(opt.summary)
-    group_by = _normalize_group_by(opt.group_by)
-    class_scheme = _normalize_class_scheme(opt.class_scheme)
+    group_by = normalize_group_by(opt.group_by)
+    class_scheme = normalize_class_scheme(opt.class_scheme)
     metric_names = METRIC_NAMES
     sample_limit_per_class = _optional_int_cast(opt.sample_limit_per_class)
     distribution_sample_limit_per_class = _optional_int_cast(
