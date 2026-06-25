@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Sequence, Tuple
+from typing import Dict, List, Sequence, Tuple
 
 from relacc.gestures.gesture import Gesture
 from relacc.gestures.ptaligntype import PtAlignType
@@ -21,6 +21,13 @@ from ._common import (
     read_points,
     sampling_rate,
     sampling_rate_for_sets,
+)
+from .dataset_discovery import (
+    filename_key,
+    match_relative_csv_keys,
+    top_level_filename_key,
+    unique_index,
+    unmatched_keys,
 )
 
 
@@ -67,63 +74,31 @@ def _rounded_metric_values(values: Dict[str, float], round_precision: int | None
 
 
 def _top_level_filename_key(relative_csv_path: str) -> str:
-    parts = relative_csv_path.split("/")
-    if len(parts) < 2:
-        return parts[0]
-    return "/".join([parts[0], parts[-1]])
+    return top_level_filename_key(relative_csv_path)
 
 
 def _filename_key(relative_csv_path: str) -> str:
-    return relative_csv_path.split("/")[-1]
+    return filename_key(relative_csv_path)
 
 
 def _unique_index(
     keys: Sequence[str],
-    key_func: Callable[[str], str],
+    key_func,
 ) -> Dict[str, str]:
-    grouped: Dict[str, List[str]] = {}
-    for key in keys:
-        grouped.setdefault(key_func(key), []).append(key)
-    return {
-        match_key: values[0]
-        for match_key, values in grouped.items()
-        if len(values) == 1
-    }
+    return unique_index(keys, key_func)
 
 
 def _collect_directory_pairs(
     ref_files: Dict[str, Path],
     cand_files: Dict[str, Path],
 ) -> List[Tuple[str, str]]:
-    ref_remaining = set(ref_files.keys())
-    cand_remaining = set(cand_files.keys())
-    pairs: List[Tuple[str, str]] = []
-
-    exact_keys = sorted(ref_remaining & cand_remaining)
-    for key in exact_keys:
-        pairs.append((key, key))
-    ref_remaining -= set(exact_keys)
-    cand_remaining -= set(exact_keys)
-
-    for key_func in [_top_level_filename_key, _filename_key]:
-        ref_index = _unique_index(sorted(ref_remaining), key_func)
-        cand_index = _unique_index(sorted(cand_remaining), key_func)
-        matched_lookup_keys = sorted(set(ref_index.keys()) & set(cand_index.keys()))
-        if not matched_lookup_keys:
-            continue
-
-        matched_refs = set()
-        matched_cands = set()
-        for match_key in matched_lookup_keys:
-            ref_key = ref_index[match_key]
-            cand_key = cand_index[match_key]
-            pairs.append((ref_key, cand_key))
-            matched_refs.add(ref_key)
-            matched_cands.add(cand_key)
-        ref_remaining -= matched_refs
-        cand_remaining -= matched_cands
-
-    return pairs
+    return [
+        (match.reference_key, match.candidate_key)
+        for match in match_relative_csv_keys(
+            tuple(ref_files.keys()),
+            tuple(cand_files.keys()),
+        )
+    ]
 
 
 def discover_pairs(reference_input: str, candidate_input: str, strict: bool = True):
@@ -143,14 +118,22 @@ def discover_pairs(reference_input: str, candidate_input: str, strict: bool = Tr
     ref_files = _list_csv_files(ref_path)
     cand_files = _list_csv_files(cand_path)
 
-    directory_pairs = _collect_directory_pairs(ref_files, cand_files)
+    directory_matches = match_relative_csv_keys(
+        tuple(ref_files.keys()),
+        tuple(cand_files.keys()),
+    )
+    directory_pairs = [
+        (match.reference_key, match.candidate_key)
+        for match in directory_matches
+    ]
     if not directory_pairs:
         raise ValueError("No matching CSV files found between input directories.")
 
-    matched_ref_keys = {ref_key for ref_key, _ in directory_pairs}
-    matched_cand_keys = {cand_key for _, cand_key in directory_pairs}
-    missing_in_candidate = sorted(set(ref_files.keys()) - matched_ref_keys)
-    missing_in_reference = sorted(set(cand_files.keys()) - matched_cand_keys)
+    missing_in_candidate, missing_in_reference = unmatched_keys(
+        tuple(ref_files.keys()),
+        tuple(cand_files.keys()),
+        directory_matches,
+    )
 
     if strict and (missing_in_candidate or missing_in_reference):
         raise ValueError(

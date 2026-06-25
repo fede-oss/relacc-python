@@ -20,9 +20,11 @@ from relacc.gestures.ptaligntype import PtAlignType
 from relacc.pipeline.distribution import (
     GROUP_BY_FILENAME_LABEL,
     GROUP_BY_PARENT_DIR,
-    _class_key_for_relative_path,
     format_distribution_rows_csv,
     run_distribution_comparison,
+)
+from relacc.pipeline.dataset_discovery import (
+    class_key_for_relative_path,
 )
 from relacc.pipeline.pairwise import (
     DIRECT_MODE,
@@ -233,7 +235,7 @@ def _relative_csv_keys(root: Path):
 
 def _class_key_safe(relative_path: str, group_by: str):
     try:
-        return _class_key_for_relative_path(relative_path, group_by)
+        return class_key_for_relative_path(relative_path, group_by)
     except ValueError as exc:
         return None, str(exc)
 
@@ -261,7 +263,7 @@ def _dataset_summary(root: Path, scope: str, group_by: str):
         except Exception as exc:  # noqa: BLE001 - validation should report parser details.
             issues.append(_issue("error", scope, str(exc), rel))
 
-        parent_key = _class_key_for_relative_path(rel, GROUP_BY_PARENT_DIR)
+        parent_key = class_key_for_relative_path(rel, GROUP_BY_PARENT_DIR)
         parent_counts[parent_key] = parent_counts.get(parent_key, 0) + 1
         class_key = _class_key_safe(rel, group_by)
         if isinstance(class_key, tuple):
@@ -788,7 +790,7 @@ def _files_for_class(root: Path, class_key: str, group_by: str):
     files = []
     for rel in _relative_csv_keys(root):
         try:
-            key = _class_key_for_relative_path(rel, group_by)
+            key = class_key_for_relative_path(rel, group_by)
         except ValueError:
             continue
         if key == class_key:
