@@ -258,7 +258,7 @@ def test_compute_summary_shapes_divides_by_included_gestures():
         aligned=[Point(30, 0, 0, 0), Point(40, 0, 0, 0)],
     )
 
-    shapes = SummaryGesture.computeSummaryShapes(DummySummary(), [included, filtered], popularStrokeNum=2)
+    shapes = SummaryGesture.computeSummaryShapes(DummySummary(), [included, filtered], popularStrokeNum=1)
     centroid = shapes["centroid"]
     assert [pt.X for pt in centroid] == [10, 20]
 
