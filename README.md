@@ -66,13 +66,14 @@ The summary gesture is the computed reference all samples are measured against. 
 | `-m` value | Description | Real gesture? |
 |---|---|---|
 | *(omitted)* | First input file's resampled points — an arbitrary pick | Yes |
-| `centroid` | Coordinate-wise **mean** at each sample index — a smooth synthetic average | No |
-| `medoid` | Coordinate-wise **median** at each sample index — more robust to outliers than centroid | No |
+| `centroid` | Pointwise **mean** of X, Y, and time at each sample index, with modal stroke ID | No |
+| `medoid` | Pointwise coordinate-wise **median** of X, Y, and time at each sample index, with modal stroke ID | No |
 | `kcentroid` | The actual gesture in the collection **nearest to the centroid** (1-NN search) | Yes |
 | `kmedoid` | The actual gesture in the collection **nearest to the medoid** (1-NN search) | Yes |
 
 `centroid` and `medoid` produce a synthetic shape that may not correspond to any real recording. `kcentroid` and `kmedoid` always return a real gesture from the input.
 Use `-p` (`--popular`) to filter out gestures whose stroke count differs from the most common one before building the summary.
+
 
 ### Multi-stroke resampling
 

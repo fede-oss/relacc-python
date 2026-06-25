@@ -104,6 +104,49 @@ def test_kinematic_metrics():
     assert len(RelAcc.localSpeedErrors(gesture, summaryShape)) == 3
 
 
+@pytest.mark.parametrize("summary_shape", ["centroid", "medoid"])
+def test_timing_metrics_are_invariant_to_summary_collection_order(summary_shape):
+    gestures = [
+        Gesture(
+            [p(0, 0, 0, 0), p(1, 0, 10, 0), p(2, 0, 20, 0)],
+            "line",
+            3,
+        ),
+        Gesture(
+            [p(0, 0, 0, 0), p(1, 0, 100, 0), p(2, 0, 200, 0)],
+            "line",
+            3,
+        ),
+        Gesture(
+            [p(0, 0, 0, 0), p(1, 0, 70, 0), p(2, 0, 140, 0)],
+            "line",
+            3,
+        ),
+    ]
+    original_summary = SummaryGesture(
+        gestures,
+        PtAlignType.CHRONOLOGICAL,
+        summary_shape,
+    )
+    reordered_summary = SummaryGesture(
+        [gestures[2], gestures[0], gestures[1]],
+        PtAlignType.CHRONOLOGICAL,
+        summary_shape,
+    )
+
+    metric_functions = [
+        RelAcc.timeError,
+        RelAcc.timeVariability,
+        RelAcc.velocityError,
+        RelAcc.meanStrokeDuration,
+    ]
+    for gesture in gestures:
+        for metric_function in metric_functions:
+            assert metric_function(gesture, original_summary) == pytest.approx(
+                metric_function(gesture, reordered_summary)
+            )
+
+
 def test_curvature_and_corner_slowdown_metrics():
     summaryPts = [
         p(0, 0, 0, 0),

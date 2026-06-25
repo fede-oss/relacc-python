@@ -1,5 +1,6 @@
-import pytest
 from types import SimpleNamespace
+
+import pytest
 
 from relacc.geom.point import Point
 from relacc.gestures.gesture import Gesture
@@ -13,6 +14,27 @@ def _collection():
     pt3 = Point(5, 6, 300, 0)
     s = [pt1, pt2, pt3]
     return s, [Gesture(s, "my label", 3), Gesture(s, "my label", 3)]
+
+
+def _timed_line(times, stroke_ids=(0, 0, 0), name="timed line"):
+    points = [
+        Point(0, 0, times[0], stroke_ids[0]),
+        Point(1, 0, times[1], stroke_ids[1]),
+        Point(2, 0, times[2], stroke_ids[2]),
+    ]
+    return Gesture(points, name, 3)
+
+
+def _permutation_fixture():
+    return [
+        _timed_line([0, 10, 20], [6, 6, 6]),
+        _timed_line([0, 100, 200], [2, 2, 2]),
+        _timed_line([0, 70, 140], [4, 4, 4]),
+    ]
+
+
+def _point_fields(points):
+    return [(point.X, point.Y, point.T, point.StrokeID) for point in points]
 
 
 def test_summarygesture_rejects_different_names():
@@ -104,6 +126,95 @@ def test_summarygesture_kmedoid_mode():
     assert summary.originalPoints == s
 
 
+@pytest.mark.parametrize(
+    ("summary_shape", "expected_timestamps"),
+    [
+        ("centroid", [0, 60, 120]),
+        ("medoid", [0, 70, 140]),
+    ],
+)
+def test_synthetic_summary_points_are_permutation_invariant(
+    summary_shape,
+    expected_timestamps,
+):
+    gestures = _permutation_fixture()
+    permutations = [
+        gestures,
+        [gestures[1], gestures[2], gestures[0]],
+        [gestures[2], gestures[0], gestures[1]],
+    ]
+
+    summaries = [
+        SummaryGesture(permutation, PtAlignType.CHRONOLOGICAL, summary_shape)
+        for permutation in permutations
+    ]
+    point_fields = [_point_fields(summary.originalPoints) for summary in summaries]
+
+    assert point_fields[0] == point_fields[1] == point_fields[2]
+    assert [point.T for point in summaries[0].originalPoints] == expected_timestamps
+    assert [point.StrokeID for point in summaries[0].originalPoints] == [2, 2, 2]
+
+
+def test_medoid_uses_coordinate_wise_median_timestamp_for_even_collection_size():
+    gestures = [
+        _timed_line([0, 10, 20]),
+        _timed_line([0, 30, 60]),
+        _timed_line([0, 50, 100]),
+        _timed_line([0, 70, 140]),
+    ]
+
+    summary = SummaryGesture(gestures, PtAlignType.CHRONOLOGICAL, "medoid")
+
+    assert [point.T for point in summary.originalPoints] == [0, 40, 80]
+
+
+def test_synthetic_summary_stroke_id_uses_mode_with_numeric_tie_break():
+    gestures = [
+        _timed_line([0, 10, 20], [3, 5, 8]),
+        _timed_line([0, 20, 40], [3, 5, 6]),
+        _timed_line([0, 30, 60], [4, 7, 6]),
+        _timed_line([0, 40, 80], [4, 9, 8]),
+    ]
+
+    summary = SummaryGesture(gestures, PtAlignType.CHRONOLOGICAL, "centroid")
+
+    assert [point.StrokeID for point in summary.originalPoints] == [3, 5, 6]
+
+
+@pytest.mark.parametrize("summary_shape", ["kcentroid", "kmedoid"])
+def test_k_summary_modes_retain_real_gesture_timing(summary_shape):
+    gestures = [
+        _timed_line([0, 10, 20]),
+        _timed_line([0, 100, 200]),
+    ]
+
+    summary = SummaryGesture(gestures, PtAlignType.CHRONOLOGICAL, summary_shape)
+
+    assert [point.T for point in summary.originalPoints] == [0, 10, 20]
+
+
+def test_compute_summary_shapes_rejects_non_finite_aggregate_timestamp():
+    class DummySummary:
+        def __init__(self):
+            self.refGesture = SimpleNamespace(samplingRate=1)
+            self.alignmentType = PtAlignType.CHRONOLOGICAL
+
+        @staticmethod
+        def alignGesture(gesture, alignmentType=None):
+            return gesture.aligned
+
+    gestures = [
+        SimpleNamespace(points=[Point(0, 0, 0, 0)], aligned=[Point(1, 1, 0, 0)]),
+        SimpleNamespace(
+            points=[Point(0, 0, 0, 0)],
+            aligned=[Point(1, 1, float("inf"), 0)],
+        ),
+    ]
+
+    with pytest.raises(ValueError, match="aggregate"):
+        SummaryGesture.computeSummaryShapes(DummySummary(), gestures, popularStrokeNum=0)
+
+
 def test_summarygesture_knn_uses_effective_alignment(monkeypatch):
     _, collection = _collection()
     calls = []
@@ -147,7 +258,7 @@ def test_compute_summary_shapes_divides_by_included_gestures():
         aligned=[Point(30, 0, 0, 0), Point(40, 0, 0, 0)],
     )
 
-    shapes = SummaryGesture.computeSummaryShapes(DummySummary(), [included, filtered], popularStrokeNum=1)
+    shapes = SummaryGesture.computeSummaryShapes(DummySummary(), [included, filtered], popularStrokeNum=2)
     centroid = shapes["centroid"]
     assert [pt.X for pt in centroid] == [10, 20]
 
