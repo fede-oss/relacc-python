@@ -21,8 +21,8 @@ from relacc.geom.pointset import PointSet
 from relacc.gestures.gesture import Gesture
 from relacc.gestures.ptaligntype import PtAlignType
 from relacc.gestures.summarygesture import SummaryGesture
+from relacc.pipeline._common import sampling_rate_for_sets
 from relacc.utils.csv import CSVUtil
-from relacc.utils.math import MathUtil
 
 
 @dataclass(frozen=True)
@@ -118,7 +118,6 @@ def render_overlay_svg(
     all_points = []
     reference_points = []
     summary_points = []
-    max_stroke_count = 1
     normalized_summary_source = (summary_source or "reference").strip().lower()
 
     for group_index, group in enumerate(groups):
@@ -127,7 +126,6 @@ def render_overlay_svg(
             points = _read_points(file)
             if not points:
                 continue
-            max_stroke_count = max(max_stroke_count, PointSet.countStrokes(points))
             all_points.append((group, points))
             if group_index == 0:
                 reference_points.append(points)
@@ -140,8 +138,7 @@ def render_overlay_svg(
     if not summary_points and normalized_summary_source == "reference":
         summary_points = reference_points
 
-    if rate is None:
-        rate = max(24, MathUtil.factorial(max_stroke_count))
+    rate = sampling_rate_for_sets([points for _, points in all_points], rate)
 
     fig = plt.figure(figsize=(canvas_size / 100, canvas_size / 100), dpi=100)
     ax = fig.add_axes([0, 0, 1, 1])

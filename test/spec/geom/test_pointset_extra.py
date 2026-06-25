@@ -62,7 +62,20 @@ def test_count_strokes_transition_logic():
         Point(3, 0, 3, 1),
         Point(4, 0, 4, 1),
     ]
-    assert PointSet.countStrokes(multi) == 2
+    assert PointSet.countStrokes(multi) == 4
+
+
+def test_count_strokes_counts_contiguous_runs():
+    assert PointSet.countStrokes([]) == 0
+    assert PointSet.countStrokes([Point(0, 0, 0, 4)]) == 1
+    assert PointSet.countStrokes(_points()) == 2
+    assert PointSet.countStrokes(
+        [
+            Point(0, 0, 0, 0),
+            Point(1, 0, 1, 1),
+            Point(2, 0, 2, 0),
+        ]
+    ) == 3
 
 
 def test_cum_distance_and_index_lookup():
@@ -111,55 +124,48 @@ def test_js_round_negative_branch():
     assert _js_round(-1.4) == -1
 
 
-def test_eq_resample(monkeypatch):
-    points = _points()
-
-    monkeypatch.setattr(PointSet, "countStrokes", staticmethod(lambda *_: 2))
-    monkeypatch.setattr(
-        PointSet,
-        "eqDistStrokes",
-        staticmethod(
-            lambda *_: [
-                [Point(0, 0, 0, 0), Point(1, 0, 1, 0)],
-                [Point(2, 0, 2, 1), Point(3, 0, 3, 1)],
-            ]
-        ),
-    )
-    monkeypatch.setattr(PointSet, "unifResampling", staticmethod(lambda stroke, *_: stroke))
-
-    called = {"ensure": False}
-
-    def _ensure(newPoints, n):
-        called["ensure"] = True
-        assert n == 4
-        assert len(newPoints) == 4
-
-    monkeypatch.setattr(PointSet, "ensureResampling", staticmethod(_ensure))
-
-    out = PointSet.eqResample(points, 4)
-    assert len(out) == 4
-    assert called["ensure"] is True
+def test_eq_resample_delegates_to_multistroke_policy():
+    assert PointSet.eqResample(_points(), 5) == PointSet.resample(_points(), 5)
 
 
-def test_ensure_resampling_exit():
+def test_ensure_resampling_raises_value_error():
     PointSet.ensureResampling([Point()], 1)
-    with pytest.raises(SystemExit):
+    with pytest.raises(ValueError, match="Expected 2 resampled points"):
         PointSet.ensureResampling([Point()], 2)
 
 
-def test_generic_resample(monkeypatch):
-    points = _points()
+def test_resample_requires_one_point_per_stroke_and_valid_inputs():
+    with pytest.raises(ValueError, match="must not be empty"):
+        PointSet.resample([], 1)
+    with pytest.raises(ValueError, match="integer"):
+        PointSet.resample(_points(), 2.5)
+    with pytest.raises(ValueError, match="at least the number of strokes"):
+        PointSet.resample(_points(), 1)
 
-    monkeypatch.setattr(PointSet, "unifResampling", staticmethod(lambda *_: [Point(), Point()]))
-    called = {"ensure": False}
 
-    def _ensure(newPoints, n):
-        called["ensure"] = True
-        assert n == 2
-        assert len(newPoints) == 2
+def test_resample_zero_length_strokes_distributes_round_robin():
+    points = [
+        Point(1, 1, 0, 7),
+        Point(1, 1, 1, 7),
+        Point(5, 5, 2, 8),
+        Point(5, 5, 3, 8),
+    ]
 
-    monkeypatch.setattr(PointSet, "ensureResampling", staticmethod(_ensure))
+    resampled = PointSet.resample(points, 5)
 
-    out = PointSet.resample(points, 2)
-    assert len(out) == 2
-    assert called["ensure"] is True
+    assert len(resampled) == 5
+    assert [point.StrokeID for point in resampled] == [7, 7, 7, 8, 8]
+
+
+def test_resample_largest_remainder_ties_follow_stroke_order():
+    points = [
+        Point(0, 0, 0, 0),
+        Point(2, 0, 2, 0),
+        Point(10, 0, 10, 1),
+        Point(12, 0, 12, 1),
+    ]
+
+    resampled = PointSet.resample(points, 5)
+
+    assert [point.StrokeID for point in resampled] == [0, 0, 0, 1, 1]
+    assert resampled[1] == Point(1, 0, 1, 0)

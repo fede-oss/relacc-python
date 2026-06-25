@@ -74,6 +74,14 @@ The summary gesture is the computed reference all samples are measured against. 
 `centroid` and `medoid` produce a synthetic shape that may not correspond to any real recording. `kcentroid` and `kmedoid` always return a real gesture from the input.
 Use `-p` (`--popular`) to filter out gestures whose stroke count differs from the most common one before building the summary.
 
+### Multi-stroke resampling
+
+A stroke is a run of points with the same `stroke_id`; if an ID
+appears again after another stroke, that later run is a separate stroke. Each
+stroke is resampled independently, so resampling never counts or interpolates the jump between strokes.
+
+`-r` can be used to set the resampled number of points.
+
 ---
 
 ## Usage

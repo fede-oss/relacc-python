@@ -16,10 +16,12 @@ from relacc.gestures.summarygesture import SummaryGesture
 from relacc.metrics import compute_metrics
 from relacc.utils.csv import CSVUtil
 from relacc.utils.json import JSONUtil
-from relacc.utils.math import MathUtil
 
 
 SUMMARY_SHAPES = {"centroid", "medoid", "kcentroid", "kmedoid"}
+MIN_AUTO_SAMPLING_RATE = 24
+TARGET_POINTS_PER_STROKE = 8
+MAX_AUTO_SAMPLING_RATE = 256
 
 
 def list_csv_files(path: Path) -> Dict[str, Path]:
@@ -113,18 +115,32 @@ def load_csv_entries(input_path: str | Path) -> List[Tuple[str, str, list]]:
 
 
 def sampling_rate_for_sets(point_sets, rate):
-    if rate is not None:
-        parsed_rate = int(rate)
-        if parsed_rate < 1:
-            raise ValueError("Sampling rate must be >= 1.")
-        return parsed_rate
-
     max_strokes = 1
     for points in point_sets:
         stroke_count = PointSet.countStrokes(points)
         if stroke_count > max_strokes:
             max_strokes = stroke_count
-    return max(24, MathUtil.factorial(max_strokes))
+
+    if rate is not None:
+        parsed_rate = int(rate)
+        if parsed_rate < 1:
+            raise ValueError("Sampling rate must be >= 1.")
+        if parsed_rate < max_strokes:
+            raise ValueError(
+                "Sampling rate must be at least the maximum stroke count (%s)."
+                % max_strokes
+            )
+        return parsed_rate
+
+    if max_strokes > MAX_AUTO_SAMPLING_RATE:
+        raise ValueError(
+            "Automatic sampling does not support more than 256 stroke runs; "
+            "provide an explicit sampling rate."
+        )
+    return min(
+        MAX_AUTO_SAMPLING_RATE,
+        max(MIN_AUTO_SAMPLING_RATE, TARGET_POINTS_PER_STROKE * max_strokes),
+    )
 
 
 def sampling_rate(reference_points, candidate_points, rate):
