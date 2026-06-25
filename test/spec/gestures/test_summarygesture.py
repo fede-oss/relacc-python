@@ -131,18 +131,18 @@ def test_compute_summary_shapes_divides_by_included_gestures():
     included = SimpleNamespace(
         points=[
             Point(0, 0, 0, 0),
-            Point(1, 0, 1, 1),
-            Point(2, 0, 2, 1),
-            Point(3, 0, 3, 1),
+            Point(1, 0, 1, 0),
+            Point(2, 0, 2, 0),
+            Point(3, 0, 3, 0),
         ],
         aligned=[Point(10, 0, 0, 0), Point(20, 0, 0, 0)],
     )
     filtered = SimpleNamespace(
         points=[
             Point(0, 0, 0, 0),
-            Point(1, 0, 1, 1),
-            Point(2, 0, 2, 2),
-            Point(3, 0, 3, 2),
+            Point(1, 0, 1, 0),
+            Point(2, 0, 2, 1),
+            Point(3, 0, 3, 1),
         ],
         aligned=[Point(30, 0, 0, 0), Point(40, 0, 0, 0)],
     )
