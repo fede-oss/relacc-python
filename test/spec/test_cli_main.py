@@ -25,6 +25,14 @@ def _sample_rows(offset=0):
     ]
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("0", 0), ("chronological", 0), ("1", 1), ("cloud", 1)],
+)
+def test_main_parser_accepts_canonical_alignment_spellings(value, expected):
+    assert relacc_cli.build_parser().parse_args(["-a", value]).alignment == expected
+
+
 def test_main_json_stats_output(tmp_path):
     f1 = tmp_path / "s1-arrow-t1.csv"
     f2 = tmp_path / "s1-arrow-t2.csv"

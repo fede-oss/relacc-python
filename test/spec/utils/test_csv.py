@@ -6,11 +6,13 @@ from pathlib import Path
 
 import pytest
 
+from relacc import relacc as RelAcc
+from relacc.gestures.gesture import Gesture
 from relacc.relacc import speedArray
 from relacc.utils.csv import CSVUtil
 
 
-def test_csv_parse_ignores_duplicate_and_negative_timestamps(tmp_path):
+def test_csv_parse_retains_equal_and_ignores_negative_timestamps(tmp_path):
     tmp_file = Path(tmp_path) / "gesture.csv"
     rows = [
         "stroke_id x y time is_writing",
@@ -29,12 +31,11 @@ def test_csv_parse_ignores_duplicate_and_negative_timestamps(tmp_path):
     CSVUtil.readGesture(str(tmp_file), cb)
     points = out["points"]
 
-    assert len(points) == 2
-    assert points[0].X == 10
-    assert points[0].T == 0
-    assert points[1].X == 13
-    assert points[1].T == 10
-    assert points[1].StrokeID == 1
+    assert [(point.X, point.Y, point.T, point.StrokeID) for point in points] == [
+        (10.0, 20.0, 0.0, 0),
+        (11.0, 21.0, 0.0, 0),
+        (13.0, 23.0, 10.0, 1),
+    ]
 
 
 def test_csv_parse_tab_delimited_float_values(tmp_path):
@@ -55,14 +56,55 @@ def test_csv_parse_tab_delimited_float_values(tmp_path):
     CSVUtil.readGesture(str(tmp_file), cb)
     points = out["points"]
 
-    assert len(points) == 2
-    assert points[0].X == 281.0
-    assert points[0].Y == -179.0
-    assert points[0].T == 0.0
-    assert points[0].StrokeID == 1
-    assert points[1].X == 280.5
-    assert points[1].T == 14.0
-    assert points[1].StrokeID == 2
+    assert [(point.X, point.Y, point.T, point.StrokeID) for point in points] == [
+        (281.0, -179.0, 0.0, 1),
+        (280.999996, -178.999992, 0.0, 1),
+        (280.5, -178.5, 14.0, 2),
+    ]
+
+
+def test_csv_parse_retains_three_distinct_points_at_same_timestamp(tmp_path):
+    tmp_file = Path(tmp_path) / "same-timestamp.csv"
+    rows = [
+        "stroke_id,x,y,time,is_writing",
+        "0,1,2,5,1",
+        "0,3,4,5,1",
+        "1,5,6,5,1",
+    ]
+    tmp_file.write_text("\n".join(rows), encoding="utf-8")
+
+    out = {}
+
+    def cb(points):
+        out["points"] = points
+
+    CSVUtil.readGesture(str(tmp_file), cb)
+
+    assert [(point.X, point.Y, point.T, point.StrokeID) for point in out["points"]] == [
+        (1.0, 2.0, 5.0, 0),
+        (3.0, 4.0, 5.0, 0),
+        (5.0, 6.0, 5.0, 1),
+    ]
+
+
+def test_csv_duplicate_timestamp_contributes_to_gesture_geometry(tmp_path):
+    tmp_file = Path(tmp_path) / "geometry.csv"
+    rows = [
+        "stroke_id,x,y,time,is_writing",
+        "0,0,0,0,1",
+        "0,0,10,0,1",
+        "0,10,10,10,1",
+    ]
+    tmp_file.write_text("\n".join(rows), encoding="utf-8")
+
+    out = {}
+
+    def cb(points):
+        out["gesture"] = Gesture(points, "duplicate-clock-tick", samplingRate=3)
+
+    CSVUtil.readGesture(str(tmp_file), cb)
+
+    assert RelAcc.strokeLengths(out["gesture"].originalPoints) == [20.0]
 
 
 def test_csv_parse_gzip_text(tmp_path):
@@ -337,7 +379,7 @@ def test_csv_ignores_malformed_gesture_rows(tmp_path):
     assert [point.T for point in points] == [0.0, 30.0]
 
 
-def test_csv_ignores_non_increasing_timestamps_to_prevent_negative_velocity(tmp_path):
+def test_csv_ignores_only_strictly_decreasing_timestamps(tmp_path):
     tmp_file = Path(tmp_path) / "non-increasing.csv"
     rows = [
         "stroke_id,x,y,time,is_writing",
@@ -356,5 +398,9 @@ def test_csv_ignores_non_increasing_timestamps_to_prevent_negative_velocity(tmp_
     CSVUtil.readGesture(str(tmp_file), cb)
     points = out["points"]
 
-    assert [point.T for point in points] == [0.0, 10.0, 20.0]
+    assert [(point.X, point.T) for point in points] == [
+        (0.0, 0.0),
+        (10.0, 10.0),
+        (30.0, 20.0),
+    ]
     assert all(speed >= 0 for speed in speedArray(points))

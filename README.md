@@ -57,12 +57,6 @@ The metrics cover:
 | `wddtwDistance` | Weighted derivative DTW |
 
 Lower values always mean closer to the reference. The movement-feature metrics compute the feature on the sample and on the summary/reference, then report the absolute difference; `curvature` reports a Wasserstein distance between local curvature distributions. Passing a single CSV produces all zeros (reference = the file itself).
-
-The DTW-family metrics are computed on the chronological point sequences after the same resampling and translation steps used elsewhere in the toolkit.
-The Python API uses the exact DTW dynamic program, so runtime is quadratic in the resampled point count.
-For the weighted variants, the logistic phase-penalty slope defaults to `0.25` (`penalty_g`) and can be overridden from the Python API when stricter or looser off-diagonal penalties are needed.
-On the CLI, the DTW-family metrics are included by default. Smaller resampling rates stay exact; larger resampling rates automatically switch to a Sakoe-Chiba-style band for faster approximate runs. Use `--exact-dtw` to force exact DTW, or `--dtw-window N` to choose your own window radius.
-
 ---
 
 ## The Summary Gesture (`-m`)
@@ -72,13 +66,22 @@ The summary gesture is the computed reference all samples are measured against. 
 | `-m` value | Description | Real gesture? |
 |---|---|---|
 | *(omitted)* | First input file's resampled points — an arbitrary pick | Yes |
-| `centroid` | Coordinate-wise **mean** at each sample index — a smooth synthetic average | No |
-| `medoid` | Coordinate-wise **median** at each sample index — more robust to outliers than centroid | No |
+| `centroid` | Pointwise **mean** of X, Y, and time at each sample index, with modal stroke ID | No |
+| `medoid` | Pointwise coordinate-wise **median** of X, Y, and time at each sample index, with modal stroke ID | No |
 | `kcentroid` | The actual gesture in the collection **nearest to the centroid** (1-NN search) | Yes |
 | `kmedoid` | The actual gesture in the collection **nearest to the medoid** (1-NN search) | Yes |
 
 `centroid` and `medoid` produce a synthetic shape that may not correspond to any real recording. `kcentroid` and `kmedoid` always return a real gesture from the input.
 Use `-p` (`--popular`) to filter out gestures whose stroke count differs from the most common one before building the summary.
+
+
+### Multi-stroke resampling
+
+A stroke is a run of points with the same `stroke_id`; if an ID
+appears again after another stroke, that later run is a separate stroke. Each
+stroke is resampled independently, so resampling never counts or interpolates the jump between strokes.
+
+`-r` can be used to set the resampled number of points.
 
 ---
 
@@ -141,7 +144,7 @@ relacc -s -m centroid -r 32 --exact-dtw -f json \
 |---|---|---|
 | `-m, --summary` | *(first file)* | Summary strategy: `centroid`, `medoid`, `kcentroid`, `kmedoid` |
 | `-r, --rate` | auto | Resampling rate (points per gesture). Auto-estimated from stroke count if omitted |
-| `-a, --alignment` | `0` | Point alignment: `0` = chronological, `1` = cloud-match (unordered) |
+| `-a, --alignment` | `0` | Point alignment: `0` or `chronological`; `1`, `cloud`, or `cloud-match` (unordered) |
 | `-p, --popular` | off | Filter to most common stroke count before building summary |
 | `-s, --stats` | off | Output aggregate stats instead of per-file rows |
 | `-f, --format` | per-file text, stats JSON | Output format: `json`, `csv`, `xml`, `text` |
@@ -242,7 +245,7 @@ Key flags:
 | `-p, --popular` | off | Filter to most common stroke count when building summary |
 | `--strict / --no-strict` | strict | Only used by `direct` mode for directory matching |
 | `-r, --rate` | auto | Resampling rate (auto-estimated when omitted) |
-| `-a, --alignment` | `0` | Point alignment: `0` chronological, `1` cloud-match |
+| `-a, --alignment` | `0` | Point alignment: `0` or `chronological`; `1`, `cloud`, or `cloud-match` |
 | `--round` | `3` | Decimal precision in output metrics |
 | `-f, --format` | `json` | Output format: `json`, `csv` |
 | `-o, --output` | *(stdout)* | Write output to file |
@@ -346,7 +349,7 @@ Key flags:
 | `-m, --summary` | *(first reference gesture)* | Summary strategy reused from pairwise comparison |
 | `-p, --popular` | off | Filter to most common stroke count when building the per-reference summary |
 | `-r, --rate` | auto | Resampling rate; auto-estimated from reference samples only |
-| `-a, --alignment` | `0` | Point alignment: `0` chronological, `1` cloud-match |
+| `-a, --alignment` | `0` | Point alignment: `0` or `chronological`; `1`, `cloud`, or `cloud-match` |
 | `--round` | `3` | Decimal precision in output metrics |
 | `-f, --format` | `json` | Output format: `json`, `csv` |
 | `-o, --output` | *(stdout)* | Write output to file |
@@ -433,8 +436,17 @@ This keeps distribution logic modular and independent from pairwise evaluation.
 ## Run tests
 
 ```bash
-python3 -m pytest --cov=relacc --cov-fail-under=100 --cov-report=term-missing
+python3 -m pip install -e .
+python3 -m pytest
 ```
+
+To generate a broad coverage diagnostic:
+
+```bash
+COVERAGE_FILE=/tmp/relacc.coverage PYTHONDONTWRITEBYTECODE=1 python3 -m coverage run -m pytest -q -p no:cacheprovider
+COVERAGE_FILE=/tmp/relacc.coverage python3 -m coverage report --show-missing
+```
+
 
 ## Gestures CSV format
 

@@ -195,7 +195,10 @@ async def create_evaluation_job(
     comparison_names: str = Form("[]"),
     config: str = Form("{}"),
 ):
-    parsed_config = parse_config(config)
+    try:
+        parsed_config = parse_config(config)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     reference_bytes = await reference_zip.read()
     comparisons: list[tuple[str, bytes]] = []
     if candidate_zip is not None:

@@ -420,6 +420,7 @@ def _metric_samples_for_class(
     exact_dtw: bool = False,
     return_raw: bool = False,
 ):
+    alignment_type = PtAlignType.normalize(alignment_type)
     reference_points = [entry.points for entry in spec.reference_entries]
     effective_rate = sampling_rate_for_sets(reference_points, rate)
     selected_dtw_window = effective_dtw_window(effective_rate, dtw_window, exact_dtw)
@@ -474,6 +475,7 @@ def _metric_samples_for_class(
                     "rate": effective_rate,
                     "requestedRate": rate,
                     "alignment": alignment_type,
+                    "alignmentName": PtAlignType.name(alignment_type),
                     "summary": summary_shape,
                     "popular": bool(popular_shape),
                     "dtwWindow": selected_dtw_window,
@@ -525,6 +527,7 @@ def _metric_samples_for_class(
                     "rate": effective_rate,
                     "requestedRate": rate,
                     "alignment": alignment_type,
+                    "alignmentName": PtAlignType.name(alignment_type),
                     "summary": summary_shape,
                     "popular": bool(popular_shape),
                     "dtwWindow": selected_dtw_window,
@@ -565,6 +568,7 @@ def _metric_samples_for_class(
                     "rate": effective_rate,
                     "requestedRate": rate,
                     "alignment": alignment_type,
+                    "alignmentName": PtAlignType.name(alignment_type),
                     "summary": summary_shape,
                     "popular": bool(popular_shape),
                     "dtwWindow": selected_dtw_window,
@@ -631,6 +635,7 @@ def run_distribution_comparison(
     comparison_group_name: str = "comparison",
     include_legacy_fields: bool = False,
 ):
+    alignment_type = PtAlignType.normalize(alignment_type)
     summary_shape = normalize_summary_shape(summary_shape)
     group_by = _normalize_group_by(group_by)
     valid_classes, skipped_classes, invalid_classes = discover_class_comparisons(
@@ -746,6 +751,7 @@ def run_distribution_comparison(
             "invalidClasses": invalid_classes,
             "rate": rate,
             "alignment": alignment_type,
+            "alignmentName": PtAlignType.name(alignment_type),
             "summary": summary_shape,
             "popular": bool(popular_shape),
             "roundPrecision": round_precision,

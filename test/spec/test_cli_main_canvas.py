@@ -2,8 +2,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+import relacc_canvas_cli
+
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_canvas_parser_accepts_cloud_match_alignment():
+    assert relacc_canvas_cli.build_parser().parse_args(["-a", "cloud-match"]).alignment == 1
 
 
 def _write_csv(path, rows):

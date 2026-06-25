@@ -109,6 +109,7 @@ def run_one_vs_many_comparison(
     dtw_window: int | None = None,
     exact_dtw: bool = False,
 ):
+    alignment_type = PtAlignType.normalize(alignment_type)
     if dtw_window is not None and exact_dtw:
         raise ValueError("--dtw-window cannot be combined with --exact-dtw.")
 
@@ -157,6 +158,7 @@ def run_one_vs_many_comparison(
                     "rate": effective_rate,
                     "requestedRate": rate,
                     "alignment": alignment_type,
+                    "alignmentName": PtAlignType.name(alignment_type),
                     "summary": summary_shape,
                     "popular": bool(popular_shape),
                     "dtwWindow": selected_dtw_window,
@@ -178,6 +180,7 @@ def run_one_vs_many_comparison(
             "label": selected_label,
             "rate": effective_rate,
             "alignment": alignment_type,
+            "alignmentName": PtAlignType.name(alignment_type),
             "summary": summary_shape,
             "popular": bool(popular_shape),
             "dtwWindow": selected_dtw_window,
@@ -198,6 +201,7 @@ def run_one_vs_many_comparison(
             "rate": effective_rate,
             "requestedRate": rate,
             "alignment": alignment_type,
+            "alignmentName": PtAlignType.name(alignment_type),
             "summary": summary_shape,
             "popular": bool(popular_shape),
             "stats": bool(stats),
@@ -218,6 +222,7 @@ def legacy_args_from_metadata(payload: Dict[str, object], output=None, fmt: str 
         "label": metadata["label"],
         "rate": metadata["rate"],
         "alignment": metadata["alignment"],
+        "alignmentName": metadata["alignmentName"],
         "summary": metadata["summary"],
         "popular": metadata["popular"],
         "stats": metadata["stats"],
@@ -256,6 +261,7 @@ def format_one_vs_many_samples_csv(
         "label",
         "rate",
         "alignment",
+        "alignmentName",
         "summary",
         "popular",
         "dtwWindow",
@@ -335,6 +341,7 @@ def format_one_vs_many_xml(payload, legacy_args: Dict[str, object] | None = None
                 _xml_attr("label", row.get("label")),
                 _xml_attr("rate", row.get("rate")),
                 _xml_attr("alignment", row.get("alignment")),
+                _xml_attr("alignmentName", row.get("alignmentName")),
                 _xml_attr("summary", row.get("summary")),
                 _xml_attr("popular", row.get("popular")),
                 _xml_attr("dtwWindow", row.get("dtwWindow")),

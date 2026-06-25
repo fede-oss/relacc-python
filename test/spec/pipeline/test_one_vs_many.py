@@ -23,6 +23,37 @@ def _sample_rows(offset=0, stroke_1=0, stroke_2=1):
     ]
 
 
+def _timed_line_rows(times):
+    return [
+        "stroke_id x y time is_writing",
+        f"0 0 0 {times[0]} 1",
+        f"0 1 0 {times[1]} 1",
+        f"0 2 0 {times[2]} 1",
+    ]
+
+
+def _stroke_rows(strokes):
+    rows = ["stroke_id x y time is_writing"]
+    timestamp = 0
+    for stroke_id, xs in enumerate(strokes):
+        for x in xs:
+            rows.append(f"{stroke_id} {x} 0 {timestamp} 1")
+            timestamp += 1
+    return rows
+
+
+def _normalize_ordered_payload(payload):
+    return {
+        "metadata": payload["metadata"],
+        "results": payload["results"],
+        "samples": sorted(payload["samples"], key=lambda row: row["file"]),
+        "rawMetricOutputs": sorted(
+            payload["rawMetricOutputs"],
+            key=lambda row: (row["sampleKey"], row["metric"]),
+        ),
+    }
+
+
 def test_run_one_vs_many_comparison_outputs_samples_and_stats(tmp_path):
     f1 = tmp_path / "s1-arrow-t1.csv"
     f2 = tmp_path / "s1-arrow-t2.csv"
@@ -43,12 +74,81 @@ def test_run_one_vs_many_comparison_outputs_samples_and_stats(tmp_path):
     assert payload["metadata"]["summary"] == "centroid"
     assert payload["metadata"]["rate"] == 5
     assert payload["metadata"]["dtwWindow"] == 2
+    assert payload["metadata"]["alignment"] == 0
+    assert payload["metadata"]["alignmentName"] == "chronological"
     assert len(payload["samples"]) == 2
     assert payload["samples"][0]["file"] == "s1-arrow-t1"
     assert set(payload["results"].keys()) == set(METRIC_NAMES)
     assert len(payload["rawMetricOutputs"]) == 2 * len(METRIC_NAMES)
     assert payload["rawMetricOutputs"][0]["recordType"] == "rawMetricOutput"
     assert payload["rawMetricOutputs"][0]["comparisonMode"] == "one-vs-many"
+    assert payload["rawMetricOutputs"][0]["alignmentName"] == "chronological"
+
+
+@pytest.mark.parametrize("summary_shape", ["centroid", "medoid"])
+def test_run_one_vs_many_timing_metrics_are_invariant_to_file_order(tmp_path, summary_shape):
+    f1 = tmp_path / "s1-line-t1.csv"
+    f2 = tmp_path / "s1-line-t2.csv"
+    f3 = tmp_path / "s1-line-t3.csv"
+    _write_csv(f1, _timed_line_rows([0, 10, 20]))
+    _write_csv(f2, _timed_line_rows([0, 100, 200]))
+    _write_csv(f3, _timed_line_rows([0, 70, 140]))
+
+    metric_names = [
+        "timeError",
+        "timeVariability",
+        "velocityError",
+        "meanStrokeDuration",
+    ]
+    original = OneVsMany.run_one_vs_many_comparison(
+        [str(f1), str(f2), str(f3)],
+        label="line",
+        rate=3,
+        summary_shape=summary_shape,
+        stats=True,
+        metric_names=metric_names,
+        round_precision=None,
+    )
+    reordered = OneVsMany.run_one_vs_many_comparison(
+        [str(f3), str(f1), str(f2)],
+        label="line",
+        rate=3,
+        summary_shape=summary_shape,
+        stats=True,
+        metric_names=metric_names,
+        round_precision=None,
+    )
+
+    assert _normalize_ordered_payload(original) == _normalize_ordered_payload(reordered)
+
+
+def test_run_one_vs_many_popular_summary_filters_to_exact_modal_count(tmp_path):
+    lower = tmp_path / "s1-modal-t1.csv"
+    modal_a = tmp_path / "s1-modal-t2.csv"
+    modal_b = tmp_path / "s1-modal-t3.csv"
+    higher = tmp_path / "s1-modal-t4.csv"
+    _write_csv(lower, _stroke_rows([[-150, -50, 50, 150]]))
+    _write_csv(modal_a, _stroke_rows([[-2, -1], [1, 2]]))
+    _write_csv(modal_b, _stroke_rows([[-4, -3], [3, 4]]))
+    _write_csv(higher, _stroke_rows([[-300, -200], [0], [200]]))
+
+    payload = OneVsMany.run_one_vs_many_comparison(
+        [str(lower), str(modal_a), str(modal_b), str(higher)],
+        label="modal",
+        rate=4,
+        summary_shape="centroid",
+        popular_shape=True,
+        stats=False,
+        metric_names=["shapeError"],
+        round_precision=None,
+    )
+
+    modal_a_sample = next(
+        sample
+        for sample in payload["samples"]
+        if sample["file"] == "s1-modal-t2"
+    )
+    assert modal_a_sample["shapeError"] == 1.0
 
 
 def test_run_one_vs_many_stats_aggregate_raw_values_before_rounding(monkeypatch, tmp_path):
@@ -156,6 +256,8 @@ def test_one_vs_many_formatters_are_json_safe_and_csv_consistent(tmp_path):
 
     csv_output = OneVsMany.format_one_vs_many_result(payload, "csv")
     assert csv_output.splitlines()[0].startswith("file,inputFile,label,rate")
+    assert ",alignment,alignmentName,summary," in csv_output.splitlines()[0]
+    assert ",0,chronological,," in csv_output.splitlines()[1]
 
     stats_payload = OneVsMany.run_one_vs_many_comparison([str(f1)], stats=True)
     stats_csv = OneVsMany.format_one_vs_many_result(stats_payload, "csv")
@@ -193,6 +295,7 @@ def test_one_vs_many_text_xml_and_legacy_metadata_formatters(tmp_path):
     )
     assert "<args" in sample_xml
     assert "<sample " in sample_xml
+    assert 'alignment="0" alignmentName="chronological"' in sample_xml
 
     non_finite_payload = {
         **payload,

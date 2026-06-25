@@ -155,6 +155,35 @@ def test_main_pairwise_alignment_zero_is_accepted(tmp_path):
 
     payload = json.loads(res.stdout)
     assert payload["metadata"]["alignment"] == 0
+    assert payload["metadata"]["alignmentName"] == "chronological"
+
+
+def test_main_pairwise_cloud_alignment_name_is_accepted(tmp_path):
+    ref = tmp_path / "ref.csv"
+    cand = tmp_path / "cand.csv"
+    _write_csv(ref, _sample_rows(0))
+    _write_csv(cand, _sample_rows(1))
+
+    res = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "main-pairwise.py"),
+            "-f",
+            "json",
+            "-a",
+            "cloud-match",
+            str(ref),
+            str(cand),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(res.stdout)
+    assert payload["metadata"]["alignment"] == 1
+    assert payload["metadata"]["alignmentName"] == "cloud-match"
 
 
 def test_main_pairwise_csv_file_output_and_no_strict(tmp_path):

@@ -92,6 +92,7 @@ def test_run_all_pairwise_reports_writes_generic_distribution_summary(tmp_path):
 
     assert len(pairwise_rows) == 2
     assert pairwise_rows[0]["mode"] == "reference-summary"
+    assert pairwise_rows[0]["alignmentName"] == "chronological"
     assert len(baseline_rows) == 2
     assert {row["mode"] for row in baseline_rows} == {"human-summary-baseline"}
     assert {row["source"] for row in baseline_rows} == {"human"}
@@ -134,6 +135,7 @@ def test_run_all_pairwise_reports_writes_generic_distribution_summary(tmp_path):
     assert run_manifest["pairValuesIndependent"] is False
     assert run_manifest["statisticsSchemaVersion"] == 2
     assert run_manifest["removedInferentialFields"] == REMOVED_INFERENTIAL_FIELDS
+    assert manifest["alignmentName"] == "chronological"
     assert run_manifest["baselineRows"] == 2
     assert run_manifest["withinReferenceRows"] == 1
     assert run_manifest["withinComparisonRows"] == 1

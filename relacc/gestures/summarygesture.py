@@ -1,3 +1,7 @@
+import math
+import statistics
+from collections import Counter
+
 from relacc.geom.measure import Measure
 from relacc.geom.point import Point
 from relacc.geom.pointset import PointSet
@@ -16,45 +20,73 @@ def getPointsForAlignment(gesture):
     return PointSet.translateBy(points, center)
 
 
-def computeSummaryShapes(self, gestures, popularStrokeNum):
-    centroid = []
-    medoid = []
+def _stroke_id_mode(stroke_ids):
+    counts = Counter(stroke_ids)
+    most_common_count = max(counts.values())
+    return min(
+        stroke_id
+        for stroke_id, count in counts.items()
+        if count == most_common_count
+    )
+
+
+def _validate_aggregate_point(point):
+    if not (
+        math.isfinite(point.X)
+        and math.isfinite(point.Y)
+        and math.isfinite(point.T)
+    ):
+        raise ValueError("Non-finite aggregate point value.")
+
+
+def computeSummaryShapes(self, gestures):
     xPoints = []
     yPoints = []
+    tPoints = []
+    strokeIds = []
 
     collectionLen = len(gestures)
     includedCount = 0
     for _ in range(self.refGesture.samplingRate):
-        centroid.append(Point())
-        medoid.append(Point())
+        xPoints.append([])
+        yPoints.append([])
+        tPoints.append([])
+        strokeIds.append([])
 
     for g in range(collectionLen):
         gesture = gestures[g]
-        numStrk = PointSet.countStrokes(gesture.points)
-        if popularStrokeNum > 0 and numStrk > popularStrokeNum:
-            continue
         includedCount += 1
         points = self.alignGesture(gesture, self.alignmentType)
         for i in range(self.refGesture.samplingRate):
             pt = points[i]
-            centroid[i] = pt.add(centroid[i])
-            if i >= len(xPoints):
-                xPoints.append([])
-                yPoints.append([])
             xPoints[i].append(pt.X)
             yPoints[i].append(pt.Y)
+            tPoints[i].append(pt.T)
+            strokeIds[i].append(pt.StrokeID)
 
     if includedCount == 0:
         raise ValueError("No gestures available to compute summary shapes.")
 
-    pivot = int(includedCount / 2)
+    centroid = []
+    medoid = []
     for i in range(self.refGesture.samplingRate):
-        centroid[i] = centroid[i].divideBy(includedCount)
-        xPoints[i].sort()
-        yPoints[i].sort()
-        xval = xPoints[i][pivot] if pivot < len(xPoints[i]) else None
-        yval = yPoints[i][pivot] if pivot < len(yPoints[i]) else None
-        medoid[i] = Point(xval, yval, centroid[i].T, centroid[i].StrokeID)
+        stroke_id = _stroke_id_mode(strokeIds[i])
+        centroid_point = Point(
+            statistics.fmean(xPoints[i]),
+            statistics.fmean(yPoints[i]),
+            statistics.fmean(tPoints[i]),
+            stroke_id,
+        )
+        medoid_point = Point(
+            statistics.median(xPoints[i]),
+            statistics.median(yPoints[i]),
+            statistics.median(tPoints[i]),
+            stroke_id,
+        )
+        _validate_aggregate_point(centroid_point)
+        _validate_aggregate_point(medoid_point)
+        centroid.append(centroid_point)
+        medoid.append(medoid_point)
 
     return {"centroid": centroid, "medoid": medoid}
 
@@ -72,37 +104,53 @@ class SummaryGesture(Gesture):
                 raise ValueError("Gesture names cannot be different.")
 
         self.refGesture = refg
-        self.alignmentType = alignmentType or PtAlignType.CHRONOLOGICAL
+        selected_alignment = (
+            PtAlignType.CHRONOLOGICAL if alignmentType is None else alignmentType
+        )
+        self.alignmentType = PtAlignType.normalize(selected_alignment)
 
-        popularStrokeNum = 0
-        if usePopularStrokeNum:
-            strokeHist = {}
-            for g in range(collectionLen):
-                gesture = gestures[g]
-                numStrk = PointSet.countStrokes(gesture.points)
-                if numStrk not in strokeHist:
-                    strokeHist[numStrk] = 0
-                strokeHist[numStrk] += 1
+        summary_modes = {"centroid", "medoid", "kcentroid", "kmedoid"}
+        records = [
+            (index, gesture)
+            for index, gesture in enumerate(gestures)
+        ]
+        selected_records = records
+        if usePopularStrokeNum and summaryShape in summary_modes:
+            counted_records = [
+                (index, gesture, PointSet.countStrokes(gesture.points))
+                for index, gesture in records
+            ]
+            frequencies = Counter(record[2] for record in counted_records)
+            maximum_frequency = max(frequencies.values())
+            popularStrokeNum = min(
+                count
+                for count, frequency in frequencies.items()
+                if frequency == maximum_frequency
+            )
+            selected_records = [
+                (index, gesture)
+                for index, gesture, stroke_count in counted_records
+                if stroke_count == popularStrokeNum
+            ]
 
-            popularStrokeVal = 0
-            for key, val in strokeHist.items():
-                if val > popularStrokeVal:
-                    popularStrokeVal = val
-                    popularStrokeNum = int(key)
-
-        shapes = computeSummaryShapes(self, gestures, popularStrokeNum)
+        shapes = None
+        if summaryShape in summary_modes:
+            shapes = computeSummaryShapes(
+                self,
+                [record[1] for record in selected_records],
+            )
 
         def knn(referenceGesture):
             idx = -1
             minimum = float("inf")
-            for g in range(collectionLen):
-                points = self.alignGesture(gestures[g], self.alignmentType)
+            for original_index, gesture in selected_records:
+                points = self.alignGesture(gesture, self.alignmentType)
                 distance = 0
                 for i in range(refg.samplingRate):
                     distance += Measure.sqDistance(referenceGesture[i], points[i])
                 if distance < minimum:
                     minimum = distance
-                    idx = g
+                    idx = original_index
             return idx
 
         if summaryShape == "centroid":
@@ -124,6 +172,9 @@ class SummaryGesture(Gesture):
 
     def alignGesture(self, gesture, alignmentType=None):
         points = getPointsForAlignment(gesture)
+        if alignmentType is None:
+            alignmentType = self.alignmentType
+        alignmentType = PtAlignType.normalize(alignmentType)
         if alignmentType == PtAlignType.CHRONOLOGICAL:
             return points
 

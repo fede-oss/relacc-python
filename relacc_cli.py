@@ -114,7 +114,7 @@ def build_parser():
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("-l", "--label")
     parser.add_argument("-r", "--rate")
-    parser.add_argument("-a", "--alignment")
+    parser.add_argument("-a", "--alignment", type=PtAlignType.normalize)
     parser.add_argument("-m", "--summary")
     parser.add_argument("-p", "--popular", action="store_true")
     parser.add_argument("-s", "--stats", action="store_true")
@@ -157,8 +157,9 @@ def _run_experiment(opt, paths=None, metadata=None):
         )
 
     rate = _int_cast(opt.rate)
-    parsed_alignment = _int_cast(opt.alignment)
-    alignment = PtAlignType.CHRONOLOGICAL if parsed_alignment is None else parsed_alignment
+    alignment = PtAlignType.normalize(
+        PtAlignType.CHRONOLOGICAL if opt.alignment is None else opt.alignment
+    )
     parsed_round = _int_cast(opt.round)
     round_precision = 3 if parsed_round is None else parsed_round
     dtw_window = _int_cast(opt.dtw_window)
@@ -167,6 +168,7 @@ def _run_experiment(opt, paths=None, metadata=None):
         "label": opt.label,
         "rate": rate,
         "alignment": alignment,
+        "alignmentName": PtAlignType.name(alignment),
         "summary": opt.summary,
         "popular": bool(opt.popular),
         "stats": bool(opt.stats),

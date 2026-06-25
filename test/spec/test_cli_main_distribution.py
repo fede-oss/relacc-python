@@ -3,8 +3,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+import relacc_distribution_cli
+
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_distribution_parser_accepts_chronological_alignment():
+    assert relacc_distribution_cli.build_parser().parse_args(
+        ["-a", "chronological"]
+    ).alignment == 0
 
 
 def _write_csv(path, rows):

@@ -4,7 +4,9 @@ import pytest
 
 from relacc import relacc as RelAcc
 from relacc.geom.point import Point
+from relacc.gestures.gesture import Gesture
 from relacc.gestures.ptaligntype import PtAlignType
+from relacc.gestures.summarygesture import SummaryGesture
 
 
 def p(x, y, t, sid):
@@ -57,6 +59,25 @@ def test_local_and_aggregate_shape_errors():
     assert RelAcc.shapeVariability(gesture, summaryShape) == pytest.approx(RelAcc.stdev(local))
 
 
+def test_shape_error_uses_summary_stored_alignment(monkeypatch):
+    points = [p(0, 0, 0, 0), p(1, 0, 10, 0), p(2, 0, 20, 0)]
+    gestures = [Gesture(points, "line", 3), Gesture(points, "line", 3)]
+    summary = SummaryGesture(gestures, PtAlignType.CHRONOLOGICAL)
+
+    monkeypatch.setattr(
+        "relacc.gestures.summarygesture.PDollarAlt.match",
+        lambda reference, candidate: [2, 1, 0],
+    )
+
+    summary.alignmentType = PtAlignType.CLOUD_MATCH
+    cloud_error = RelAcc.shapeError(gestures[1], summary)
+    summary.alignmentType = PtAlignType.CHRONOLOGICAL
+    chronological_error = RelAcc.shapeError(gestures[1], summary)
+
+    assert cloud_error > 0
+    assert chronological_error == 0
+
+
 def test_geometric_metrics():
     _, _, _, gesture, summaryShape = _fixture_shapes()
     assert RelAcc.lengthError(gesture, summaryShape) > 0
@@ -74,6 +95,30 @@ def test_turning_angles_normalization():
     assert angles[1] < 0
 
 
+def test_turning_angles_distinguish_mirrored_paths():
+    upward = [p(0, 0, 0, 0), p(1, 0, 1, 0), p(1, 1, 2, 0)]
+    downward = [p(0, 0, 0, 0), p(1, 0, 1, 0), p(1, -1, 2, 0)]
+
+    upward_angles = RelAcc.turningAngleArray(upward)
+    downward_angles = RelAcc.turningAngleArray(downward)
+
+    assert upward_angles == pytest.approx([0, math.pi / 2, 0])
+    assert downward_angles == pytest.approx([0, -math.pi / 2, 0])
+    assert abs(upward_angles[1]) == pytest.approx(abs(downward_angles[1]))
+    assert upward_angles[1] == pytest.approx(-downward_angles[1])
+
+
+def test_local_bending_errors_distinguish_mirrored_paths():
+    upward = [p(0, 0, 0, 0), p(1, 0, 1, 0), p(1, 1, 2, 0)]
+    downward = [p(0, 0, 0, 0), p(1, 0, 1, 0), p(1, -1, 2, 0)]
+    gesture = type("GestureObj", (), {"points": downward})()
+    summaryShape = _summary_for(upward, downward)
+
+    assert RelAcc.localBendingErrors(gesture, summaryShape) == pytest.approx(
+        [0, math.pi, 0]
+    )
+
+
 def test_kinematic_metrics():
     _, _, _, gesture, summaryShape = _fixture_shapes()
     assert RelAcc.timeError(gesture, summaryShape) == 0
@@ -81,6 +126,49 @@ def test_kinematic_metrics():
     assert RelAcc.velocityError(gesture, summaryShape) > 0
     assert RelAcc.velocityVariability(gesture, summaryShape) > 0
     assert len(RelAcc.localSpeedErrors(gesture, summaryShape)) == 3
+
+
+@pytest.mark.parametrize("summary_shape", ["centroid", "medoid"])
+def test_timing_metrics_are_invariant_to_summary_collection_order(summary_shape):
+    gestures = [
+        Gesture(
+            [p(0, 0, 0, 0), p(1, 0, 10, 0), p(2, 0, 20, 0)],
+            "line",
+            3,
+        ),
+        Gesture(
+            [p(0, 0, 0, 0), p(1, 0, 100, 0), p(2, 0, 200, 0)],
+            "line",
+            3,
+        ),
+        Gesture(
+            [p(0, 0, 0, 0), p(1, 0, 70, 0), p(2, 0, 140, 0)],
+            "line",
+            3,
+        ),
+    ]
+    original_summary = SummaryGesture(
+        gestures,
+        PtAlignType.CHRONOLOGICAL,
+        summary_shape,
+    )
+    reordered_summary = SummaryGesture(
+        [gestures[2], gestures[0], gestures[1]],
+        PtAlignType.CHRONOLOGICAL,
+        summary_shape,
+    )
+
+    metric_functions = [
+        RelAcc.timeError,
+        RelAcc.timeVariability,
+        RelAcc.velocityError,
+        RelAcc.meanStrokeDuration,
+    ]
+    for gesture in gestures:
+        for metric_function in metric_functions:
+            assert metric_function(gesture, original_summary) == pytest.approx(
+                metric_function(gesture, reordered_summary)
+            )
 
 
 def test_curvature_and_corner_slowdown_metrics():

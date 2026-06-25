@@ -16,10 +16,10 @@ from relacc.geom.pointset import PointSet
 from relacc.gestures.gesture import Gesture
 from relacc.gestures.ptaligntype import PtAlignType
 from relacc.gestures.summarygesture import SummaryGesture
+from relacc.pipeline._common import sampling_rate_for_sets
 from relacc.utils.args import Args
 from relacc.utils.csv import CSVUtil
 from relacc.utils.debug import Debug
-from relacc.utils.math import MathUtil
 from relacc.utils.runlog import (
     add_run_logging_arguments,
     append_run_log,
@@ -139,7 +139,7 @@ def build_parser():
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("-l", "--label")
     parser.add_argument("-r", "--rate")
-    parser.add_argument("-a", "--alignment")
+    parser.add_argument("-a", "--alignment", type=PtAlignType.normalize)
     parser.add_argument("-m", "--summary")
     parser.add_argument("-p", "--popular", action="store_true")
     parser.add_argument("-o", "--output")
@@ -196,7 +196,9 @@ def main(argv=None):
     )
 
     imsize = defaults["size"] = argParser.get("size", 500, _int_cast)
-    alignmentType = defaults["alignment"] = argParser.get("alignment", defaults["alignment"], _int_cast)
+    alignmentType = defaults["alignment"] = PtAlignType.normalize(
+        argParser.get("alignment", defaults["alignment"])
+    )
     summaryShape = defaults["summary"] = argParser.get("summary", defaults["summary"])
     popularShape = defaults["popular"] = argParser.get("popular", defaults["popular"], _bool_cast)
     lineWidth = defaults["thickness"] = argParser.get("thickness", defaults["thickness"], _int_cast)
@@ -217,8 +219,6 @@ def main(argv=None):
     metadata["resolvedDefaults"] = dict(defaults)
     write_run_metadata(paths, metadata)
 
-    maxStrokeCount = 1
-
     def evaluate():
         fig, ax = _make_canvas(imsize, fmt)
 
@@ -236,19 +236,15 @@ def main(argv=None):
         plt.close(fig)
 
     def doneParsing(points):
-        nonlocal maxStrokeCount, rate
-        strokeCount = PointSet.countStrokes(points)
-        if strokeCount > maxStrokeCount:
-            maxStrokeCount = strokeCount
-
+        nonlocal rate
         collection.append(points)
         if len(collection) == nfiles:
             debug.fmt("Processed %s gesture files.", nfiles)
-            if not rate:
-                smartRate = max(24, MathUtil.factorial(maxStrokeCount))
-                debug.fmt("Notice: Setting sampling rate to %s points per gesture.", smartRate)
-                rate = smartRate
-                defaults["rate"] = smartRate
+            automatic_rate = rate is None
+            rate = sampling_rate_for_sets(collection, rate)
+            if automatic_rate:
+                debug.fmt("Notice: Setting sampling rate to %s points per gesture.", rate)
+                defaults["rate"] = rate
             record_effective_config(
                 paths,
                 metadata,
@@ -257,6 +253,7 @@ def main(argv=None):
                     "label": label,
                     "rate": rate,
                     "alignment": alignmentType,
+                    "alignmentName": PtAlignType.name(alignmentType),
                     "summary": summaryShape,
                     "popular": popularShape,
                     "size": imsize,
