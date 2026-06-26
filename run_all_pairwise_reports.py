@@ -32,6 +32,7 @@ from relacc.pipeline._common import (
     normalize_summary_shape,
     read_points,
     sampling_rate_for_sets,
+    summary_sampling_rate,
     write_jsonl_rows,
 )
 from relacc.pipeline.dataset_discovery import (
@@ -1344,7 +1345,8 @@ def _compare_class(
     collect_raw_outputs: bool = True,
 ) -> tuple[list[dict], list[dict], list[dict], list[dict], list[dict], dict]:
     reference_points = [entry.points for entry in reference_entries]
-    effective_rate = sampling_rate_for_sets(reference_points, rate)
+    candidate_points = [entry.points for entry in candidate_entries]
+    effective_rate = summary_sampling_rate(reference_points, candidate_points, rate)
     selected_dtw_window = _effective_dtw_window(effective_rate, dtw_window, exact_dtw)
     summary_label = f"{dataset_name}/{class_key}/human-summary"
     reference_gestures = [
@@ -1565,7 +1567,8 @@ def _compare_direct_distribution_pairs_class(
     collect_raw_outputs: bool = True,
 ) -> tuple[list[dict], list[dict], list[dict], list[dict], list[dict], list[dict], dict]:
     reference_points = [entry.points for entry in reference_entries]
-    effective_rate = sampling_rate_for_sets(reference_points, rate)
+    candidate_points = [entry.points for entry in candidate_entries]
+    effective_rate = sampling_rate_for_sets(reference_points + candidate_points, rate)
     selected_dtw_window = _effective_dtw_window(effective_rate, dtw_window, exact_dtw)
 
     within_reference_rows = []

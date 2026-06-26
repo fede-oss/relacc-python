@@ -114,12 +114,17 @@ def load_csv_entries(input_path: str | Path) -> List[Tuple[str, str, list]]:
     ]
 
 
-def sampling_rate_for_sets(point_sets, rate):
+def _max_stroke_count(point_sets):
     max_strokes = 1
     for points in point_sets:
         stroke_count = PointSet.countStrokes(points)
         if stroke_count > max_strokes:
             max_strokes = stroke_count
+    return max_strokes
+
+
+def sampling_rate_for_sets(point_sets, rate):
+    max_strokes = _max_stroke_count(point_sets)
 
     if rate is not None:
         parsed_rate = int(rate)
@@ -141,6 +146,23 @@ def sampling_rate_for_sets(point_sets, rate):
         MAX_AUTO_SAMPLING_RATE,
         max(MIN_AUTO_SAMPLING_RATE, TARGET_POINTS_PER_STROKE * max_strokes),
     )
+
+
+def summary_sampling_rate(reference_points, candidate_points, rate):
+    reference_points = list(reference_points)
+    candidate_points = list(candidate_points)
+
+    if rate is not None:
+        return sampling_rate_for_sets(reference_points + candidate_points, rate)
+
+    reference_rate = sampling_rate_for_sets(reference_points, None)
+    candidate_max_strokes = _max_stroke_count(candidate_points)
+    if candidate_max_strokes > MAX_AUTO_SAMPLING_RATE:
+        raise ValueError(
+            "Automatic sampling does not support more than 256 stroke runs; "
+            "provide an explicit sampling rate."
+        )
+    return max(reference_rate, candidate_max_strokes)
 
 
 def sampling_rate(reference_points, candidate_points, rate):

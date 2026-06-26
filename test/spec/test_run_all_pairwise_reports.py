@@ -30,6 +30,25 @@ def _write_csv(path: Path, offset=0):
     )
 
 
+def _write_csv_rows(path: Path, rows):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(rows), encoding="utf-8")
+
+
+def _sample_rows_with_stroke_count(stroke_count: int, offset=0):
+    rows = ["stroke_id x y time is_writing"]
+    time = 0
+    x = 10 + offset
+    for stroke_id in range(stroke_count):
+        rows.append(f"{stroke_id} {x} 20 {time} 1")
+        time += 10
+        x += 2
+        rows.append(f"{stroke_id} {x} 22 {time} 1")
+        time += 10
+        x += 2
+    return rows
+
+
 def _read_csv(path: Path):
     return list(csv.DictReader(path.read_text(encoding="utf-8").splitlines()))
 
@@ -272,3 +291,61 @@ def test_run_all_summary_validation_rejects_impossible_bounds():
             ("mean", "mdn"),
             "strokeError",
         )
+
+
+def test_run_all_pairwise_reports_summary_compare_class_rate_is_candidate_safe(tmp_path):
+    reference_a = tmp_path / "s01-arrow-fast-t01.csv"
+    reference_b = tmp_path / "s02-arrow-fast-t02.csv"
+    candidate = tmp_path / "g01-arrow-fast-t01.csv"
+
+    _write_csv_rows(reference_a, _sample_rows_with_stroke_count(2, 0))
+    _write_csv_rows(reference_b, _sample_rows_with_stroke_count(2, 3))
+    _write_csv_rows(candidate, _sample_rows_with_stroke_count(25, 1))
+
+    reference_entries = (
+        PairwiseReports.ReportingEntry(
+            "s01-arrow-fast-t01.csv",
+            str(reference_a),
+            "1dollar",
+            "arrow",
+            PairwiseReports.read_points(str(reference_a)),
+        ),
+        PairwiseReports.ReportingEntry(
+            "s02-arrow-fast-t02.csv",
+            str(reference_b),
+            "1dollar",
+            "arrow",
+            PairwiseReports.read_points(str(reference_b)),
+        ),
+    )
+    candidate_entries = (
+        PairwiseReports.ReportingEntry(
+            "g01-arrow-fast-t01.csv",
+            str(candidate),
+            "1dollar",
+            "arrow",
+            PairwiseReports.read_points(str(candidate)),
+        ),
+    )
+
+    pairwise_rows = PairwiseReports._compare_class(
+        reference_entries,
+        candidate_entries,
+        candidate_entries,
+        run_id="run-1",
+        source_name="generated",
+        dataset_name="1dollar",
+        variant="syntTO",
+        class_key="arrow",
+        reference_input=tmp_path,
+        rate=None,
+        alignment=PairwiseReports.PtAlignType.CHRONOLOGICAL,
+        summary_shape=None,
+        popular=False,
+        round_precision=3,
+        metric_names=PairwiseReports.METRIC_NAMES,
+        dtw_window=None,
+        exact_dtw=False,
+    )[0]
+
+    assert {row["rate"] for row in pairwise_rows} == {25}

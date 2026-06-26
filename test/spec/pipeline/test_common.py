@@ -59,3 +59,26 @@ def test_sampling_rate_for_sets_validates_explicit_rate_against_strokes():
     with pytest.raises(ValueError, match="at least the maximum stroke count"):
         Common.sampling_rate_for_sets([points], 3)
     assert Common.sampling_rate_for_sets([points], 300) == 300
+
+
+def test_summary_sampling_rate_keeps_reference_auto_rate_when_candidate_is_below_it():
+    reference_points = [_stroke_runs(4)]
+    candidate_points = [_stroke_runs(5)]
+
+    assert Common.summary_sampling_rate(reference_points, candidate_points, None) == 32
+
+
+def test_summary_sampling_rate_validates_explicit_rate_against_candidates():
+    reference_points = [_stroke_runs(2)]
+    candidate_points = [_stroke_runs(5)]
+
+    with pytest.raises(ValueError, match="at least the maximum stroke count"):
+        Common.summary_sampling_rate(reference_points, candidate_points, 4)
+
+
+def test_summary_sampling_rate_rejects_automatic_candidates_over_cap():
+    reference_points = [_stroke_runs(2)]
+    candidate_points = [_stroke_runs(257)]
+
+    with pytest.raises(ValueError, match="more than 256 stroke runs"):
+        Common.summary_sampling_rate(reference_points, candidate_points, None)

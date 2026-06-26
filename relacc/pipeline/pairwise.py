@@ -21,6 +21,7 @@ from ._common import (
     read_points,
     sampling_rate,
     sampling_rate_for_sets,
+    summary_sampling_rate,
 )
 from .dataset_discovery import (
     filename_key,
@@ -165,6 +166,10 @@ def _sampling_rate(reference_points, candidate_points, rate):
     return sampling_rate(reference_points, candidate_points, rate)
 
 
+def _summary_sampling_rate(reference_points, candidate_points, rate):
+    return summary_sampling_rate(reference_points, candidate_points, rate)
+
+
 def compare_pair(
     pair: PairSpec,
     label: str | None = None,
@@ -289,7 +294,8 @@ def compare_against_reference_summary(
 
     # In summary mode the reference summary should be independent of candidate data.
     reference_points = [entry[2] for entry in reference_entries]
-    effective_rate = _sampling_rate_for_sets(reference_points, rate)
+    candidate_points = [entry[2] for entry in candidate_entries]
+    effective_rate = _summary_sampling_rate(reference_points, candidate_points, rate)
     selected_dtw_window = effective_dtw_window(
         effective_rate,
         dtw_window,

@@ -23,6 +23,25 @@ def _write_csv(path: Path, offset=0):
     )
 
 
+def _write_csv_rows(path: Path, rows):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(rows), encoding="utf-8")
+
+
+def _sample_rows_with_stroke_count(stroke_count: int, offset=0):
+    rows = ["stroke_id x y time is_writing"]
+    time = 0
+    x = 10 + offset
+    for stroke_id in range(stroke_count):
+        rows.append(f"{stroke_id} {x} 20 {time} 1")
+        time += 10
+        x += 2
+        rows.append(f"{stroke_id} {x} 22 {time} 1")
+        time += 10
+        x += 2
+    return rows
+
+
 def _manifest_keys(payload, source):
     return [row["key"] for row in payload["samples"] if row["source"] == source]
 
@@ -398,6 +417,36 @@ def test_build_raw_comparison_tables_preserves_pair_directions(monkeypatch):
     assert payload["metadata"]["candidateRowCount"] == 2
     assert payload["metadata"]["alignmentName"] == "chronological"
     assert baseline_rows[0]["alignmentName"] == "chronological"
+
+
+def test_build_raw_comparison_tables_records_candidate_safe_auto_rate(tmp_path):
+    reference_dir = tmp_path / "reference"
+    candidate_dir = tmp_path / "candidate"
+
+    _write_csv_rows(
+        reference_dir / "s01-arrow-01.csv",
+        _sample_rows_with_stroke_count(2, 0),
+    )
+    _write_csv_rows(
+        reference_dir / "s02-arrow-01.csv",
+        _sample_rows_with_stroke_count(2, 3),
+    )
+    _write_csv_rows(
+        candidate_dir / "g01-arrow-01.csv",
+        _sample_rows_with_stroke_count(25, 1),
+    )
+
+    groups = Reporting.discover_reporting_sample_groups(
+        str(reference_dir),
+        str(candidate_dir),
+    )
+    payload = Reporting.build_raw_comparison_tables(
+        groups,
+        metric_names=["shapeError"],
+    )
+
+    assert {row["rate"] for row in payload["rawBaselinePairs"]} == {200}
+    assert {row["rate"] for row in payload["rawCandidatePairs"]} == {200}
 
 
 def test_export_raw_comparison_tables_writes_sampled_and_full_outputs(
