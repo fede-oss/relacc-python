@@ -53,6 +53,95 @@ def _read_csv(path: Path):
     return list(csv.DictReader(path.read_text(encoding="utf-8").splitlines()))
 
 
+def _read_csv_header(path: Path):
+    return path.read_text(encoding="utf-8").splitlines()[0].split(",")
+
+
+def test_run_all_pairwise_reports_characterizes_core_output_contract(tmp_path):
+    datasets_root = tmp_path / "datasets"
+    output_dir = tmp_path / "report"
+
+    _write_csv(
+        datasets_root / "humans" / "1dollar" / "realTO" / "s01-arrow-fast-t01.csv",
+        0,
+    )
+    _write_csv(
+        datasets_root / "humans" / "1dollar" / "realTO" / "s02-arrow-fast-t02.csv",
+        1,
+    )
+    _write_csv(
+        datasets_root / "generated" / "1dollar" / "syntTO" / "g01-arrow-fast-t01.csv",
+        2,
+    )
+    _write_csv(
+        datasets_root / "generated" / "1dollar" / "syntTO" / "g02-arrow-fast-t02.csv",
+        3,
+    )
+
+    assert (
+        PairwiseReports.main(
+            [
+                "--datasets-root",
+                str(datasets_root),
+                "--output-dir",
+                str(output_dir),
+                "--datasets",
+                "1dollar",
+                "--sources",
+                "generated",
+                "--rate",
+                "8",
+                "--verbosity",
+                "2",
+            ]
+        )
+        == 0
+    )
+
+    combined_dir = output_dir / "combined"
+    run_dir = output_dir / "generated" / "1dollar" / "syntTO"
+    class_dir = run_dir / "classes" / "arrow"
+
+    assert _read_csv_header(combined_dir / "distribution.csv") == list(
+        PairwiseReports.DISTRIBUTION_COLUMNS
+    )
+    assert _read_csv_header(combined_dir / "pairwise.csv") == list(
+        PairwiseReports.PAIRWISE_COLUMNS
+    )
+    assert _read_csv_header(combined_dir / "aggregate_summaries.csv") == list(
+        PairwiseReports.AGGREGATE_SUMMARY_COLUMNS
+    )
+
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    run_manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    run_metadata = json.loads((output_dir / "run.json").read_text(encoding="utf-8"))
+    combined_pairwise_rows = _read_csv(combined_dir / "pairwise.csv")
+    combined_distribution_rows = _read_csv(combined_dir / "distribution.csv")
+    aggregate_rows = _read_csv(combined_dir / "aggregate_summaries.csv")
+    class_pairwise_rows = _read_csv(class_dir / "pairwise.csv")
+
+    assert manifest["plannedRunCount"] == 1
+    assert manifest["plannedCandidateCount"] == 2
+    assert manifest["combinedOutputs"]["pairwise"] == str(combined_dir / "pairwise.csv")
+    assert run_manifest["id"] == "generated/1dollar/syntTO"
+    assert run_manifest["pairwiseRows"] == 2
+    assert run_manifest["withinReferenceRows"] == 1
+    assert run_manifest["betweenGroupsRows"] == 4
+    assert run_metadata["effectiveConfig"]["datasetsRoot"] == str(datasets_root)
+    assert run_metadata["effectiveConfig"]["outputDir"] == str(output_dir)
+    assert run_metadata["effectiveConfig"]["rate"] == 8
+
+    assert combined_pairwise_rows[0]["mode"] == "reference-summary"
+    assert combined_pairwise_rows[0]["pairKey"] == "g01-arrow-fast-t01"
+    assert class_pairwise_rows == combined_pairwise_rows
+    assert combined_distribution_rows[0]["statisticalMode"] == (
+        "descriptive-pair-distances"
+    )
+    assert combined_distribution_rows[0]["metric"] in PairwiseReports.METRIC_NAMES
+    assert aggregate_rows[0]["recordSet"] == "comparison-to-reference-summary"
+    assert aggregate_rows[0]["scope"] == "overall"
+
+
 def test_run_all_pairwise_reports_writes_generic_distribution_summary(tmp_path):
     datasets_root = tmp_path / "datasets"
     output_dir = tmp_path / "report"
