@@ -200,8 +200,8 @@ def finite_values(rows: Iterable[dict], metric: str) -> list[float]:
 
 
 def run_label(row: dict) -> str:
-    variant = row.get("variant") or ""
-    if variant:
+    variant = str(row.get("variant") or "").strip()
+    if variant and variant != "root":
         return f"{row.get('source')}/{variant}"
     return str(row.get("source"))
 

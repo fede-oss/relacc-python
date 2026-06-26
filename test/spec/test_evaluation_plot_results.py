@@ -156,6 +156,17 @@ def test_tukey_upper_whisker_uses_iqr_rule():
     assert whisker == pytest.approx(5.5)
 
 
+def test_run_label_hides_only_empty_and_root_variants():
+    plots = _load_plot_module()
+
+    assert plots.run_label({"source": "scriptstudio", "variant": "root"}) == "scriptstudio"
+    assert plots.run_label({"source": "scriptstudio", "variant": ""}) == "scriptstudio"
+    assert (
+        plots.run_label({"source": "scriptstudio", "variant": "recoTO"})
+        == "scriptstudio/recoTO"
+    )
+
+
 def test_load_distribution_rows_infers_legacy_report_context(tmp_path):
     plots = _load_plot_module()
     input_dir = tmp_path / "report"
@@ -178,6 +189,75 @@ def test_load_distribution_rows_infers_legacy_report_context(tmp_path):
     assert rows[0]["variant"] == ""
     assert rows[0]["metric"] == "shapeError"
     assert rows[0]["_runLabel"] == "DHG"
+
+
+def test_load_distribution_rows_preserves_root_variant_but_hides_label_suffix(tmp_path):
+    plots = _load_plot_module()
+    input_dir = tmp_path / "report"
+    root_dir = input_dir / "generated" / "1dollar"
+    variant_dir = input_dir / "generated" / "1dollar" / "recoTO"
+    root_dir.mkdir(parents=True)
+    variant_dir.mkdir(parents=True)
+    csv_text = "\n".join(
+        [
+            "source,dataset,variant,scope,classKey,metric,withinReferenceMean,withinComparisonMean,withinComparisonToReferenceMeanRatio,normalizedWassersteinDistance,ksStatistic",
+            "generated,1dollar,{variant},class,arrow,shapeError,1.0,2.0,2.0,0.5,0.25",
+        ]
+    )
+    (root_dir / "distribution.csv").write_text(
+        csv_text.format(variant="root"),
+        encoding="utf-8",
+    )
+    (variant_dir / "distribution.csv").write_text(
+        csv_text.format(variant="recoTO"),
+        encoding="utf-8",
+    )
+
+    rows = plots.load_distribution_rows(input_dir)
+    rows_by_variant = {row["variant"]: row for row in rows}
+
+    assert rows_by_variant["root"]["variant"] == "root"
+    assert rows_by_variant["root"]["_runLabel"] == "generated"
+    assert rows_by_variant["recoTO"]["_runLabel"] == "generated/recoTO"
+
+
+def test_build_overview_tables_writes_root_and_meaningful_variant_labels(tmp_path):
+    plots = _load_plot_module()
+    output_dir = tmp_path / "plots"
+    distribution_rows = []
+    for variant in ("root", "recoTO"):
+        row = {
+            "source": "generated",
+            "dataset": "1dollar",
+            "variant": variant,
+            "metric": "shapeError",
+            "withinReferenceMean": "1.0",
+            "withinComparisonMean": "2.0",
+            "withinComparisonToReferenceMeanRatio": "2.0",
+            "normalizedWassersteinDistance": "0.5",
+            "ksStatistic": "0.25",
+        }
+        row["_runLabel"] = plots.run_label(row)
+        distribution_rows.append(row)
+
+    overview_rows, metric_rows = plots.build_overview_tables(distribution_rows, output_dir)
+    overview_csv = plots.read_csv_rows(output_dir / "tables" / "source_dataset_scores.csv")
+    metric_csv = plots.read_csv_rows(output_dir / "tables" / "source_dataset_metric_scores.csv")
+
+    assert (output_dir / "tables" / "source_dataset_scores.csv").exists()
+    assert {row["sourceLabel"] for row in overview_rows} == {
+        "generated",
+        "generated/recoTO",
+    }
+    assert {row["sourceLabel"] for row in overview_csv} == {
+        "generated",
+        "generated/recoTO",
+    }
+    assert {row["sourceLabel"] for row in metric_rows} == {
+        "generated",
+        "generated/recoTO",
+    }
+    assert "withinComparisonToReferenceMeanRatio" in metric_csv[0]
 
 
 def test_plot_ratio_boxplots_writes_main_and_outlier_views(tmp_path):
