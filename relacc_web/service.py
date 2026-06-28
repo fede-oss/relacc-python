@@ -33,7 +33,7 @@ from relacc.pipeline.pairwise import (
     format_pair_rows_csv,
     run_pairwise_comparison,
 )
-from relacc.utils.csv import CSVUtil
+from relacc.gesture_input import read_csv_points
 
 
 IGNORED_NAMES = {".ds_store", "thumbs.db"}
@@ -250,13 +250,7 @@ def _dataset_summary(root: Path, scope: str, group_by: str):
     for rel in files:
         full_path = root / rel
         try:
-            state = {}
-
-            def done(points):
-                state["points"] = points
-
-            CSVUtil.readGesture(str(full_path), done)
-            point_count = len(state.get("points") or [])
+            point_count = len(read_csv_points(str(full_path), require_points=False))
             if point_count == 0:
                 issues.append(_issue("error", scope, "CSV parsed no gesture points.", rel))
             total_points += point_count
