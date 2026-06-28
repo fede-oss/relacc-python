@@ -6,8 +6,10 @@ import json
 import math
 import os
 import statistics
+import time
 from dataclasses import dataclass
 from pathlib import Path
+from threading import RLock
 from typing import Any, Iterable
 
 from relacc.canvas import OverlayGroup, render_overlay_svg
@@ -40,6 +42,16 @@ METRIC_FAMILIES = {
     "dtw": ("dtwDistance", "ldtwDistance", "ddtwDistance", "wdtwDistance", "wddtwDistance"),
 }
 
+DISCOVERY_CACHE_TTL_SECONDS = 2.0
+
+_CACHE_LOCK = RLock()
+_DISCOVERY_CACHE: dict[str, Any] = {"key": None, "expires_at": 0.0, "reports": []}
+_ROW_CACHE: dict[tuple[str, int, int], tuple[dict[str, str], ...]] = {}
+_ROW_INDEX_CACHE: dict[
+    tuple[tuple[str, int, int], tuple[str, ...]],
+    dict[tuple[str, str], tuple[dict[str, str], ...]],
+] = {}
+
 
 @dataclass(frozen=True)
 class ReportCache:
@@ -67,6 +79,36 @@ def _report_search_roots() -> list[Path]:
         if raw.strip():
             roots.append(Path(raw).expanduser())
     return list(dict.fromkeys(root for root in roots if root.exists()))
+
+
+def _discovery_cache_key(roots: Iterable[Path]) -> tuple[tuple[str, int], ...]:
+    key = []
+    for root in roots:
+        try:
+            resolved = root.resolve()
+            stat = resolved.stat()
+        except OSError:
+            continue
+        key.append((str(resolved), stat.st_mtime_ns))
+    return tuple(key)
+
+
+def clear_report_cache() -> None:
+    with _CACHE_LOCK:
+        _DISCOVERY_CACHE["key"] = None
+        _DISCOVERY_CACHE["expires_at"] = 0.0
+        _DISCOVERY_CACHE["reports"] = []
+        _ROW_CACHE.clear()
+        _ROW_INDEX_CACHE.clear()
+
+
+def _cache_stats() -> dict[str, int]:
+    with _CACHE_LOCK:
+        return {
+            "reports": len(_DISCOVERY_CACHE["reports"]),
+            "rowFiles": len(_ROW_CACHE),
+            "rowIndexes": len(_ROW_INDEX_CACHE),
+        }
 
 
 def _overlay_file_roots() -> list[Path]:
@@ -141,12 +183,26 @@ def _discover_reports() -> list[ReportCache]:
     return reports
 
 
+def _cached_discover_reports() -> list[ReportCache]:
+    roots = _report_search_roots()
+    cache_key = _discovery_cache_key(roots)
+    now = time.monotonic()
+    with _CACHE_LOCK:
+        if _DISCOVERY_CACHE["key"] == cache_key and now < _DISCOVERY_CACHE["expires_at"]:
+            return list(_DISCOVERY_CACHE["reports"])
+        reports = _discover_reports()
+        _DISCOVERY_CACHE["key"] = cache_key
+        _DISCOVERY_CACHE["expires_at"] = now + DISCOVERY_CACHE_TTL_SECONDS
+        _DISCOVERY_CACHE["reports"] = tuple(reports)
+        return reports
+
+
 def list_report_caches() -> list[dict[str, Any]]:
-    return [_report_card(report) for report in _discover_reports()]
+    return [_report_card(report) for report in _cached_discover_reports()]
 
 
 def get_report_cache(report_id: str) -> ReportCache | None:
-    for report in _discover_reports():
+    for report in _cached_discover_reports():
         if report.id == report_id or report.root.name == report_id:
             return report
     return None
@@ -214,6 +270,95 @@ def _read_rows(path: Path, limit: int | None = None) -> Iterable[dict[str, str]]
             if limit is not None and index >= limit:
                 break
             yield row
+
+
+def _row_cache_key(report: ReportCache, record_set: str) -> tuple[Path, tuple[str, int, int]] | None:
+    if record_set not in COMBINED_FILES:
+        return None
+    path = _csv_path(report, record_set)
+    if path is None:
+        return None
+    try:
+        resolved = path.resolve()
+        stat = resolved.stat()
+    except OSError:
+        return None
+    return resolved, (str(resolved), stat.st_mtime_ns, stat.st_size)
+
+
+def _cached_rows(report: ReportCache, record_set: str) -> tuple[dict[str, str], ...]:
+    key_parts = _row_cache_key(report, record_set)
+    if key_parts is None:
+        return ()
+    resolved, cache_key = key_parts
+    with _CACHE_LOCK:
+        cached = _ROW_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+        for key in [key for key in _ROW_CACHE if key[0] == str(resolved)]:
+            _ROW_CACHE.pop(key, None)
+        for key in [key for key in _ROW_INDEX_CACHE if key[0][0] == str(resolved)]:
+            _ROW_INDEX_CACHE.pop(key, None)
+        rows = tuple(_read_rows(resolved))
+        _ROW_CACHE[cache_key] = rows
+        return rows
+
+
+def _row_index(
+    report: ReportCache,
+    record_set: str,
+    fields: tuple[str, ...],
+) -> dict[tuple[str, str], tuple[dict[str, str], ...]]:
+    key_parts = _row_cache_key(report, record_set)
+    if key_parts is None:
+        return {}
+    _, row_key = key_parts
+    index_key = (row_key, fields)
+    with _CACHE_LOCK:
+        cached = _ROW_INDEX_CACHE.get(index_key)
+        if cached is not None:
+            return cached
+    grouped: dict[tuple[str, str], list[dict[str, str]]] = {}
+    for row in _cached_rows(report, record_set):
+        for field in fields:
+            value = str(row.get(field) or "")
+            if value:
+                grouped.setdefault((field, value), []).append(row)
+    index = {key: tuple(rows) for key, rows in grouped.items()}
+    with _CACHE_LOCK:
+        _ROW_INDEX_CACHE[index_key] = index
+    return index
+
+
+def _indexed_candidate_rows(
+    report: ReportCache,
+    record_set: str,
+    filters: dict[str, Any],
+    metrics: set[str],
+    fields: tuple[str, ...],
+) -> tuple[dict[str, str], ...]:
+    rows = _cached_rows(report, record_set)
+    if not rows:
+        return ()
+    index = _row_index(report, record_set, fields)
+    candidates: list[tuple[dict[str, str], ...]] = []
+    if "metric" in fields and metrics:
+        metric_rows = []
+        for metric in metrics:
+            metric_rows.extend(index.get(("metric", metric), ()))
+        if not metric_rows:
+            return ()
+        candidates.append(tuple(metric_rows))
+    for field, filter_key in (("source", "source"), ("dataset", "dataset"), ("classKey", "classKey")):
+        value = filters.get(filter_key)
+        if field in fields and value:
+            bucket = index.get((field, str(value)), ())
+            if not bucket:
+                return ()
+            candidates.append(bucket)
+    if not candidates:
+        return rows
+    return min(candidates, key=len)
 
 
 def _num(value: Any) -> float | None:
@@ -367,12 +512,12 @@ def report_filters(report: ReportCache) -> dict[str, Any]:
 
 
 def _ranking_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str, Any]:
-    path = _csv_path(report, "distribution")
-    if path is None:
+    if _csv_path(report, "distribution") is None:
         return {"kind": "ranking", "rows": []}
     metrics = set(_metric_family(filters, report.manifest))
+    rows = _indexed_candidate_rows(report, "distribution", filters, metrics, ("metric", "source", "dataset", "classKey"))
     grouped: dict[str, dict[str, float]] = {}
-    for row in _read_rows(path):
+    for row in rows:
         if row.get("metric") not in metrics or not _matches(row, filters, metric=False):
             continue
         score = _distribution_score(row, filters)
@@ -398,13 +543,13 @@ def _ranking_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str, 
 
 
 def _heatmap_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str, Any]:
-    path = _csv_path(report, "distribution")
-    if path is None:
+    if _csv_path(report, "distribution") is None:
         return {"kind": "heatmap", "sources": [], "metrics": [], "values": []}
     metrics = list(_metric_family(filters, report.manifest))[:18]
     metric_set = set(metrics)
+    rows = _indexed_candidate_rows(report, "distribution", filters, metric_set, ("metric", "source", "dataset", "classKey"))
     grouped: dict[tuple[str, str], dict[str, float]] = {}
-    for row in _read_rows(path):
+    for row in rows:
         if row.get("metric") not in metric_set or not _matches(row, filters, metric=False):
             continue
         score = _distribution_score(row, filters)
@@ -442,14 +587,21 @@ def _heatmap_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str, 
 
 
 def _scatter_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str, Any]:
-    baseline_path = _csv_path(report, "baseline_stats")
-    generated_path = _csv_path(report, "stats")
-    if baseline_path is None or generated_path is None:
+    if _csv_path(report, "baseline_stats") is None or _csv_path(report, "stats") is None:
         return {"kind": "scatter", "points": []}
     selected_metrics = list(_metric_family(filters, report.manifest))
     metric = selected_metrics[0] if selected_metrics else "shapeError"
+    metric_set = {metric}
+    baseline_rows = _indexed_candidate_rows(
+        report,
+        "baseline_stats",
+        {**filters, "source": ""},
+        metric_set,
+        ("metric", "dataset", "classKey", "source"),
+    )
+    generated_rows = _indexed_candidate_rows(report, "stats", filters, metric_set, ("metric", "dataset", "classKey", "source"))
     baseline: dict[tuple[str, str], dict[str, float | None]] = {}
-    for row in _read_rows(baseline_path):
+    for row in baseline_rows:
         if row.get("metric") != metric or not _matches(row, {**filters, "source": ""}, metric=False):
             continue
         key = (str(row.get("dataset")), str(row.get("classKey")), str(row.get("metric")))
@@ -458,7 +610,7 @@ def _scatter_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str, 
             baseline[key] = {"mean": value, "mdn": _num(row.get("mdn"))}
 
     points = []
-    for row in _read_rows(generated_path):
+    for row in generated_rows:
         if row.get("metric") != metric or not _matches(row, filters, metric=False):
             continue
         key = (str(row.get("dataset")), str(row.get("classKey")), str(row.get("metric")))
@@ -488,19 +640,25 @@ def _scatter_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str, 
 
 
 def _pairwise_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str, Any]:
-    baseline_path = _csv_path(report, "baseline_stats")
-    generated_path = _csv_path(report, "stats")
-    if baseline_path is None or generated_path is None:
+    if _csv_path(report, "baseline_stats") is None or _csv_path(report, "stats") is None:
         return {"kind": "pairwise", "rows": []}
     metrics = set(_metric_family(filters, report.manifest))
+    baseline_rows = _indexed_candidate_rows(
+        report,
+        "baseline_stats",
+        {**filters, "source": ""},
+        metrics,
+        ("metric", "dataset", "classKey", "source"),
+    )
+    generated_rows = _indexed_candidate_rows(report, "stats", filters, metrics, ("metric", "dataset", "classKey", "source"))
     baseline_groups: dict[str, dict[str, float]] = {}
     generated_groups: dict[tuple[str, str], dict[str, float]] = {}
-    for row in _read_rows(baseline_path):
+    for row in baseline_rows:
         if row.get("metric") not in metrics or not _matches(row, {**filters, "source": ""}, metric=False):
             continue
         _weighted_accumulate(baseline_groups, row["metric"], _num(row.get("mean")), _num(row.get("finiteN")))
     baseline_means = _weighted_rows(baseline_groups)
-    for row in _read_rows(generated_path):
+    for row in generated_rows:
         if row.get("metric") not in metrics or not _matches(row, filters, metric=False):
             continue
         _weighted_accumulate(
@@ -529,12 +687,12 @@ def _pairwise_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str,
 
 
 def _distribution_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str, Any]:
-    path = _csv_path(report, "distribution")
-    if path is None:
+    if _csv_path(report, "distribution") is None:
         return {"kind": "distribution", "rows": []}
     metrics = set(_metric_family(filters, report.manifest))
+    rows = _indexed_candidate_rows(report, "distribution", filters, metrics, ("metric", "source", "dataset", "classKey"))
     grouped: dict[tuple[str, str], dict[str, dict[str, float]]] = {}
-    for row in _read_rows(path):
+    for row in rows:
         if row.get("metric") not in metrics or not _matches(row, filters, metric=False):
             continue
         key = (source_label(row), row["metric"])
@@ -591,10 +749,10 @@ def _histogram_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str
         ("between_groups", "between groups", True),
     ]
     for record_set, label, match_source in record_sets:
-        path = _csv_path(report, record_set)
-        if path is None:
+        cached_rows = _cached_rows(report, record_set)
+        if not cached_rows:
             continue
-        for row in _read_rows(path):
+        for row in cached_rows:
             if row.get("dataset") != dataset or row.get("classKey") != class_key:
                 continue
             if filters.get("variant") and str(row.get("variant") or "root") != str(filters["variant"]):
@@ -679,7 +837,7 @@ def report_table(
     rows = []
     matched = 0
     columns: list[str] = []
-    for row in _read_rows(path):
+    for row in _cached_rows(report, record_set):
         if not columns:
             columns = list(row.keys())
         if not _matches(row, filters):

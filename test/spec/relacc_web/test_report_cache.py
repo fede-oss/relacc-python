@@ -100,6 +100,7 @@ def test_report_cache_discovers_and_builds_chart_payloads(tmp_path, monkeypatch)
     root = _sample_report(tmp_path)
     monkeypatch.setattr(report_cache, "PROJECT_REPORT_ROOT", tmp_path)
     monkeypatch.setenv("RELACC_REPORT_ROOTS", str(tmp_path))
+    report_cache.clear_report_cache()
 
     reports = report_cache.list_report_caches()
     assert reports[0]["name"] == root.name
@@ -111,6 +112,115 @@ def test_report_cache_discovers_and_builds_chart_payloads(tmp_path, monkeypatch)
 
     assert ranking["rows"][0]["source"] == "DHG"
     assert scatter["points"][0]["generatedMedian"] == 1.5
+
+
+def test_report_cache_reuses_discovery_within_cache_window(tmp_path, monkeypatch):
+    root = _sample_report(tmp_path)
+    monkeypatch.setattr(report_cache, "PROJECT_REPORT_ROOT", tmp_path)
+    monkeypatch.delenv("RELACC_REPORT_ROOTS", raising=False)
+    report_cache.clear_report_cache()
+    calls = 0
+    original_discover = report_cache._discover_reports
+
+    def count_discovery():
+        nonlocal calls
+        calls += 1
+        return original_discover()
+
+    monkeypatch.setattr(report_cache, "_discover_reports", count_discovery)
+
+    assert report_cache.get_report_cache(root.name) is not None
+    assert report_cache.get_report_cache(root.name) is not None
+    assert calls == 1
+
+
+def test_clear_report_cache_sees_new_report(tmp_path, monkeypatch):
+    first = _sample_report(tmp_path)
+    monkeypatch.setattr(report_cache, "PROJECT_REPORT_ROOT", tmp_path)
+    monkeypatch.delenv("RELACC_REPORT_ROOTS", raising=False)
+    report_cache.clear_report_cache()
+
+    assert [report["name"] for report in report_cache.list_report_caches()] == [first.name]
+
+    second = _sample_report(tmp_path / "second-root")
+    report_cache.clear_report_cache()
+
+    assert {report["name"] for report in report_cache.list_report_caches()} == {first.name, second.name}
+
+
+def test_cached_rows_invalidate_when_combined_csv_changes(tmp_path):
+    root = _sample_report(tmp_path)
+    report = _load_report(root)
+    report_cache.clear_report_cache()
+
+    first = report_cache.report_table(report, "stats", {}, limit=10)
+    assert first["matched"] == 1
+
+    stat_path = root / "combined" / "stats.csv"
+    existing = list(report_cache._read_rows(stat_path))
+    _write_csv(
+        stat_path,
+        [
+            *existing,
+            {
+                **existing[0],
+                "classKey": "caret",
+                "mean": "2",
+                "mdn": "2",
+            },
+        ],
+    )
+
+    updated = report_cache.report_table(report, "stats", {}, limit=10)
+    assert updated["matched"] == 2
+    assert [row["classKey"] for row in updated["rows"]] == ["arrow", "caret"]
+
+
+def test_chart_and_table_payloads_are_stable_after_cache_clear(tmp_path):
+    root = _sample_report(tmp_path)
+    report = _load_report(root)
+    filters = {
+        "metric": "shapeError",
+        "metricFamily": "core",
+        "dataset": "1dollar",
+        "classKey": "arrow",
+        "source": "DHG",
+    }
+    chart_kinds = ["ranking", "heatmap", "scatter", "pairwise", "distribution", "histogram"]
+    report_cache.clear_report_cache()
+
+    before = {
+        kind: report_cache.report_chart_payload(report, kind, filters)
+        for kind in chart_kinds
+    }
+    before["table"] = report_cache.report_table(report, "stats", filters, limit=10)
+
+    report_cache.clear_report_cache()
+    after = {
+        kind: report_cache.report_chart_payload(report, kind, filters)
+        for kind in chart_kinds
+    }
+    after["table"] = report_cache.report_table(report, "stats", filters, limit=10)
+
+    assert after == before
+
+
+def test_cache_stats_report_private_cache_counts(tmp_path, monkeypatch):
+    root = _sample_report(tmp_path)
+    monkeypatch.setattr(report_cache, "PROJECT_REPORT_ROOT", tmp_path)
+    monkeypatch.delenv("RELACC_REPORT_ROOTS", raising=False)
+    report_cache.clear_report_cache()
+
+    assert report_cache._cache_stats() == {"reports": 0, "rowFiles": 0, "rowIndexes": 0}
+
+    assert report_cache.get_report_cache(root.name) is not None
+    report = _load_report(root)
+    report_cache.report_chart_payload(report, "ranking", {"metric": "shapeError"})
+
+    stats = report_cache._cache_stats()
+    assert stats["reports"] == 1
+    assert stats["rowFiles"] == 1
+    assert stats["rowIndexes"] == 1
 
 
 def test_manifest_output_dir_rejects_absolute_path_outside_report(tmp_path):
