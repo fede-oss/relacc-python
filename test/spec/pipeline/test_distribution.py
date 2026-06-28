@@ -117,7 +117,7 @@ def test_discover_class_comparisons_reports_valid_invalid_and_skipped(tmp_path):
     ]
 
 
-def test_metric_samples_for_class_use_reference_only_for_auto_rate_and_generate_expected_pairs(
+def test_metric_samples_for_class_include_candidates_for_auto_rate_and_generate_expected_pairs(
     monkeypatch,
 ):
     spec = Distribution.ClassComparisonSpec(
@@ -163,7 +163,7 @@ def test_metric_samples_for_class_use_reference_only_for_auto_rate_and_generate_
 
     assert effective_rate == 9
     assert selected_dtw_window is None
-    assert captured_point_sets == [[["ref-1"], ["ref-2"]]]
+    assert captured_point_sets == [[["ref-1"], ["ref-2"], ["cand-1"], ["cand-2"]]]
     assert samples[Distribution.WITHIN_REFERENCE_GROUP]["shapeError"] == [2.0]
     assert samples[Distribution.WITHIN_COMPARISON_GROUP]["shapeError"] == [6.0]
     assert samples[Distribution.BETWEEN_GROUPS]["shapeError"] == [9.0, 11.0, 13.0, 15.0]

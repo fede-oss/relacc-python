@@ -414,7 +414,8 @@ def _metric_samples_for_class(
 ):
     alignment_type = PtAlignType.normalize(alignment_type)
     reference_points = [entry.points for entry in spec.reference_entries]
-    effective_rate = sampling_rate_for_sets(reference_points, rate)
+    candidate_points = [entry.points for entry in spec.candidate_entries]
+    effective_rate = sampling_rate_for_sets(reference_points + candidate_points, rate)
     selected_dtw_window = effective_dtw_window(effective_rate, dtw_window, exact_dtw)
 
     samples = {

@@ -173,7 +173,8 @@ def build_raw_comparison_tables(
         if len(reference_points) == 0:
             continue
 
-        effective_rate = sampling_rate_for_sets(reference_points, rate)
+        candidate_points = [entry.points for entry in group.candidate_entries]
+        effective_rate = sampling_rate_for_sets(reference_points + candidate_points, rate)
         selected_dtw_window = effective_dtw_window(
             effective_rate,
             dtw_window,

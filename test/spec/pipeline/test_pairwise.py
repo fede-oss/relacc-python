@@ -343,15 +343,17 @@ def test_run_pairwise_summary_mode_compares_all_candidates(tmp_path):
     assert {row["comparisonMode"] for row in payload["rawMetricOutputs"]} == {"summary"}
 
 
-def test_run_pairwise_summary_mode_auto_rate_uses_reference_only(tmp_path):
+def test_run_pairwise_summary_mode_auto_rate_is_candidate_safe(tmp_path):
     reference_dir = tmp_path / "reference"
     candidate_dir = tmp_path / "candidate"
 
     _write_csv(reference_dir / "ref_a.csv", _sample_rows_with_stroke_count(2, 0))
     _write_csv(reference_dir / "ref_b.csv", _sample_rows_with_stroke_count(2, 3))
 
-    # Candidate has many strokes; summary-mode auto-rate should not depend on this.
-    _write_csv(candidate_dir / "cand_many_strokes.csv", _sample_rows_with_stroke_count(5, 1))
+    _write_csv(
+        candidate_dir / "cand_many_strokes.csv",
+        _sample_rows_with_stroke_count(25, 1),
+    )
 
     payload = Pairwise.run_pairwise_comparison(
         str(reference_dir),
@@ -360,7 +362,7 @@ def test_run_pairwise_summary_mode_auto_rate_uses_reference_only(tmp_path):
     )
 
     assert payload["metadata"]["comparisonMode"] == "summary"
-    assert payload["pairs"][0]["rate"] == 24
+    assert payload["pairs"][0]["rate"] == 25
     assert payload["pairs"][0]["dtwWindow"] is None
 
 
