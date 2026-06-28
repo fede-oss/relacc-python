@@ -373,7 +373,7 @@ def test_build_raw_comparison_tables_preserves_pair_directions(monkeypatch):
         }
 
     monkeypatch.setattr(
-        ReportingRaw,
+        ReportingRaw.PairEvidence,
         "compute_pair_metrics_from_points",
         fake_compute_pair_metrics,
     )
@@ -411,7 +411,7 @@ def test_export_raw_comparison_tables_writes_sampled_and_full_outputs(
         _write_csv(candidate_dir / f"c{index:02d}-arrow-01.csv", index + 10)
 
     monkeypatch.setattr(
-        ReportingRaw,
+        ReportingRaw.PairEvidence,
         "compute_pair_metrics_from_points",
         lambda *args, **kwargs: {"shapeError": 1.25},
     )
