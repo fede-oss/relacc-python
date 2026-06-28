@@ -69,6 +69,43 @@ def _report_search_roots() -> list[Path]:
     return list(dict.fromkeys(root for root in roots if root.exists()))
 
 
+def _overlay_file_roots() -> list[Path]:
+    roots = []
+    env_roots = os.environ.get("RELACC_OVERLAY_FILE_ROOTS", "")
+    for raw in env_roots.split(os.pathsep):
+        if raw.strip():
+            roots.append(Path(raw).expanduser())
+    return list(dict.fromkeys(root for root in roots if root.exists()))
+
+
+def _resolve_existing(path: Path) -> Path | None:
+    try:
+        resolved = path.resolve()
+    except OSError:
+        return None
+    return resolved if resolved.exists() else None
+
+
+def _is_under(path: Path, roots: Iterable[Path]) -> bool:
+    resolved_path = _resolve_existing(path)
+    if resolved_path is None:
+        return False
+    for root in roots:
+        resolved_root = _resolve_existing(root)
+        if resolved_root is None:
+            continue
+        try:
+            resolved_path.relative_to(resolved_root)
+        except ValueError:
+            continue
+        return True
+    return False
+
+
+def _allowed_report_roots(report: ReportCache) -> list[Path]:
+    return [report.root]
+
+
 def _read_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -668,12 +705,19 @@ def _resolve_report_path(report: ReportCache, raw_path: str | None) -> Path | No
     if not raw_path:
         return None
     path = Path(raw_path)
+    allowed_roots = _allowed_report_roots(report)
     if path.is_absolute():
-        return path if path.exists() else None
+        resolved = _resolve_existing(path)
+        if resolved is None or not _is_under(resolved, allowed_roots):
+            return None
+        return resolved
+    if ".." in path.parts:
+        return None
     candidates = [report.root.parent / path, report.root / path]
     for candidate in candidates:
-        if candidate.exists():
-            return candidate
+        resolved = _resolve_existing(candidate)
+        if resolved is not None and _is_under(resolved, allowed_roots):
+            return resolved
     return None
 
 
@@ -701,6 +745,25 @@ def _csv_values(path: Path, column: str) -> list[str]:
     return values
 
 
+def _resolve_overlay_files(report: ReportCache, class_dir: Path, raw_paths: Iterable[str]) -> list[str]:
+    allowed_roots = _allowed_report_roots(report) + [report.root.parent] + _overlay_file_roots()
+    resolved_paths = []
+    for raw_path in raw_paths:
+        path = Path(raw_path)
+        if path.is_absolute():
+            candidates = [path]
+        elif ".." in path.parts:
+            candidates = []
+        else:
+            candidates = [class_dir / path, report.root.parent / path, report.root / path]
+        for candidate in candidates:
+            resolved = _resolve_existing(candidate)
+            if resolved is not None and _is_under(resolved, allowed_roots):
+                resolved_paths.append(str(resolved))
+                break
+    return resolved_paths
+
+
 def report_overlay_svg(
     report: ReportCache,
     source: str,
@@ -721,8 +784,16 @@ def report_overlay_svg(
     class_dir = _class_dir(report, source, dataset, variant, class_key)
     if class_dir is None:
         return None
-    reference_files = _csv_values(class_dir / "baseline.csv", "sampleFile")[:sample_count]
-    candidate_files = _csv_values(class_dir / "pairwise.csv", "candidateFile")[:sample_count]
+    reference_files = _resolve_overlay_files(
+        report,
+        class_dir,
+        _csv_values(class_dir / "baseline.csv", "sampleFile"),
+    )[:sample_count]
+    candidate_files = _resolve_overlay_files(
+        report,
+        class_dir,
+        _csv_values(class_dir / "pairwise.csv", "candidateFile"),
+    )[:sample_count]
     if comparison:
         candidate_files = [path for path in candidate_files if comparison in path][:sample_count] or candidate_files
     if not reference_files and not candidate_files:

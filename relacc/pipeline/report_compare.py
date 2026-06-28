@@ -9,26 +9,17 @@ from relacc.gestures.gesture import Gesture
 from relacc.gestures.ptaligntype import PtAlignType
 from relacc.gestures.summarygesture import SummaryGesture
 from relacc.metrics import compute_metrics
-from relacc.pipeline._common import (
-    compute_pair_metrics_from_points,
-    sampling_rate_for_sets,
-    summary_sampling_rate,
-)
+from relacc.pipeline import pair_evidence as PairEvidence
+from relacc.pipeline._common import sampling_rate_for_sets, summary_sampling_rate
 from relacc.pipeline.reporting import ReportingEntry
 from relacc.pipeline.report_schema import (
     statistical_contract_fields as _statistical_contract_fields,
 )
 from relacc.pipeline.report_stats import _summary_stats, _variant_label
-from relacc.utils.math import MathUtil
 
 
 def _rounded_metric_values(values: Dict[str, float], round_precision: int | None):
-    if round_precision is None:
-        return values
-    return {
-        metric_name: MathUtil.roundTo(value, round_precision)
-        for metric_name, value in values.items()
-    }
+    return PairEvidence.rounded_metric_values(values, round_precision)
 
 
 def _raw_metric_outputs_from_values(
@@ -67,14 +58,7 @@ def _raw_metric_outputs_from_values(
         if optional_key in row:
             base[optional_key] = row.get(optional_key)
 
-    return [
-        {
-            **base,
-            "metric": metric_name,
-            "value": value,
-        }
-        for metric_name, value in raw_values.items()
-    ]
+    return PairEvidence.metric_value_rows(base, raw_values)
 
 
 def _effective_dtw_window(rate: int, requested_window: int | None, exact_dtw: bool):
@@ -168,51 +152,38 @@ def _compare_class(
             )
 
     within_comparison_rows = []
+    pair_options = PairEvidence.PairMetricOptions(
+        label=class_key,
+        effective_rate=effective_rate,
+        alignment_type=alignment,
+        summary_shape=summary_shape,
+        popular_shape=popular,
+        metric_names=metric_names,
+        dtw_window=selected_dtw_window,
+        exact_dtw=exact_dtw,
+    )
     for left_entry, right_entry in combinations(within_comparison_entries, 2):
-        forward_values = compute_pair_metrics_from_points(
-            left_entry.points,
-            right_entry.points,
-            class_key,
-            effective_rate,
-            alignment_type=alignment,
-            summary_shape=summary_shape,
-            popular_shape=popular,
-            round_precision=None,
-            metric_names=metric_names,
-            dtw_window=selected_dtw_window,
-            exact_dtw=exact_dtw,
+        left_endpoint = PairEvidence.endpoint_for(left_entry)
+        right_endpoint = PairEvidence.endpoint_for(right_entry)
+        evidence = PairEvidence.compute_bidirectional_pair_evidence(
+            left_endpoint,
+            right_endpoint,
+            pair_options,
         )
-        backward_values = compute_pair_metrics_from_points(
-            right_entry.points,
-            left_entry.points,
-            class_key,
-            effective_rate,
-            alignment_type=alignment,
-            summary_shape=summary_shape,
-            popular_shape=popular,
-            round_precision=None,
-            metric_names=metric_names,
-            dtw_window=selected_dtw_window,
-            exact_dtw=exact_dtw,
-        )
-        raw_metric_values = {
-            metric_name: (forward_values[metric_name] + backward_values[metric_name]) / 2.0
-            for metric_name in metric_names
-        }
+        raw_metric_values = evidence.values
         row = {
             "runId": run_id,
             "source": source_name,
             "dataset": dataset_name,
             "variant": _variant_label(variant),
             "classKey": class_key,
-            "pairKey": "%s::%s"
-            % (
-                Path(left_entry.key).with_suffix("").as_posix(),
-                Path(right_entry.key).with_suffix("").as_posix(),
+            "pairKey": PairEvidence.joined_pair_key(left_endpoint, right_endpoint),
+            "candidateFile": PairEvidence.joined_pair_path(
+                left_endpoint,
+                right_endpoint,
             ),
-            "candidateFile": "%s::%s" % (left_entry.path, right_entry.path),
             "referenceInput": str(reference_input),
-            "mode": "within-comparison",
+            "mode": PairEvidence.WITHIN_COMPARISON_RECORD_SET,
             "referenceCount": len(reference_entries),
             "candidateCount": len(within_comparison_entries),
             "rate": effective_rate,
@@ -231,7 +202,7 @@ def _compare_class(
                 _raw_metric_outputs_from_values(
                     row,
                     raw_metric_values,
-                    "within-comparison",
+                    PairEvidence.WITHIN_COMPARISON_RECORD_SET,
                 )
             )
 
@@ -337,52 +308,39 @@ def _compare_direct_distribution_pairs_class(
     within_reference_rows = []
     between_group_rows = []
     raw_metric_outputs = []
+    pair_options = PairEvidence.PairMetricOptions(
+        label=class_key,
+        effective_rate=effective_rate,
+        alignment_type=alignment,
+        summary_shape=summary_shape,
+        popular_shape=popular,
+        metric_names=metric_names,
+        dtw_window=selected_dtw_window,
+        exact_dtw=exact_dtw,
+    )
 
     for left_entry, right_entry in combinations(reference_entries, 2):
-        forward_values = compute_pair_metrics_from_points(
-            left_entry.points,
-            right_entry.points,
-            class_key,
-            effective_rate,
-            alignment_type=alignment,
-            summary_shape=summary_shape,
-            popular_shape=popular,
-            round_precision=None,
-            metric_names=metric_names,
-            dtw_window=selected_dtw_window,
-            exact_dtw=exact_dtw,
+        left_endpoint = PairEvidence.endpoint_for(left_entry)
+        right_endpoint = PairEvidence.endpoint_for(right_entry)
+        evidence = PairEvidence.compute_bidirectional_pair_evidence(
+            left_endpoint,
+            right_endpoint,
+            pair_options,
         )
-        backward_values = compute_pair_metrics_from_points(
-            right_entry.points,
-            left_entry.points,
-            class_key,
-            effective_rate,
-            alignment_type=alignment,
-            summary_shape=summary_shape,
-            popular_shape=popular,
-            round_precision=None,
-            metric_names=metric_names,
-            dtw_window=selected_dtw_window,
-            exact_dtw=exact_dtw,
-        )
-        raw_metric_values = {
-            metric_name: (forward_values[metric_name] + backward_values[metric_name]) / 2.0
-            for metric_name in metric_names
-        }
+        raw_metric_values = evidence.values
         row = {
             "runId": run_id,
             "source": "human",
             "dataset": dataset_name,
             "variant": _variant_label(variant),
             "classKey": class_key,
-            "pairKey": "%s::%s"
-            % (
-                Path(left_entry.key).with_suffix("").as_posix(),
-                Path(right_entry.key).with_suffix("").as_posix(),
+            "pairKey": PairEvidence.joined_pair_key(left_endpoint, right_endpoint),
+            "candidateFile": PairEvidence.joined_pair_path(
+                left_endpoint,
+                right_endpoint,
             ),
-            "candidateFile": "%s::%s" % (left_entry.path, right_entry.path),
             "referenceInput": str(reference_input),
-            "mode": "within-reference",
+            "mode": PairEvidence.WITHIN_REFERENCE_RECORD_SET,
             "referenceCount": len(reference_entries),
             "candidateCount": len(candidate_entries),
             "rate": effective_rate,
@@ -401,39 +359,33 @@ def _compare_direct_distribution_pairs_class(
                 _raw_metric_outputs_from_values(
                     row,
                     raw_metric_values,
-                    "within-reference",
+                    PairEvidence.WITHIN_REFERENCE_RECORD_SET,
                 )
             )
 
     for reference_entry in reference_entries:
         for candidate_entry in candidate_entries:
-            raw_metric_values = compute_pair_metrics_from_points(
-                reference_entry.points,
-                candidate_entry.points,
-                class_key,
-                effective_rate,
-                alignment_type=alignment,
-                summary_shape=summary_shape,
-                popular_shape=popular,
-                round_precision=None,
-                metric_names=metric_names,
-                dtw_window=selected_dtw_window,
-                exact_dtw=exact_dtw,
+            reference_endpoint = PairEvidence.endpoint_for(reference_entry)
+            candidate_endpoint = PairEvidence.endpoint_for(candidate_entry)
+            evidence = PairEvidence.compute_directional_pair_evidence(
+                reference_endpoint,
+                candidate_endpoint,
+                pair_options,
             )
+            raw_metric_values = evidence.values
             row = {
                 "runId": run_id,
                 "source": source_name,
                 "dataset": dataset_name,
                 "variant": _variant_label(variant),
                 "classKey": class_key,
-                "pairKey": "%s::%s"
-                % (
-                    Path(reference_entry.key).with_suffix("").as_posix(),
-                    Path(candidate_entry.key).with_suffix("").as_posix(),
+                "pairKey": PairEvidence.joined_pair_key(
+                    reference_endpoint,
+                    candidate_endpoint,
                 ),
-                "candidateFile": candidate_entry.path,
-                "referenceInput": reference_entry.path,
-                "mode": "between-groups",
+                "candidateFile": candidate_endpoint.path,
+                "referenceInput": reference_endpoint.path,
+                "mode": PairEvidence.BETWEEN_GROUPS_RECORD_SET,
                 "referenceCount": len(reference_entries),
                 "candidateCount": len(candidate_entries),
                 "rate": effective_rate,
@@ -452,7 +404,7 @@ def _compare_direct_distribution_pairs_class(
                     _raw_metric_outputs_from_values(
                         row,
                         raw_metric_values,
-                        "between-groups",
+                        PairEvidence.BETWEEN_GROUPS_RECORD_SET,
                     )
                 )
 

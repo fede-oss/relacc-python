@@ -78,7 +78,7 @@ def test_direct_distribution_rate_selection_includes_candidates(monkeypatch):
 
     monkeypatch.setattr(ReportCompare, "sampling_rate_for_sets", fake_sampling_rate_for_sets)
     monkeypatch.setattr(
-        ReportCompare,
+        ReportCompare.PairEvidence,
         "compute_pair_metrics_from_points",
         lambda *args, **kwargs: _metric_dict(2.0),
     )

@@ -13,9 +13,8 @@ from relacc.geom.pointset import PointSet
 from relacc.gestures.gesture import Gesture
 from relacc.gestures.ptaligntype import PtAlignType
 from relacc.gestures.summarygesture import SummaryGesture
+from relacc.gesture_input import read_csv_points, read_gesture_points
 from relacc.metrics import compute_metrics
-from relacc.utils.csv import CSVUtil
-from relacc.utils.json import JSONUtil
 
 
 SUMMARY_SHAPES = {"centroid", "medoid", "kcentroid", "kmedoid"}
@@ -72,38 +71,7 @@ def normalize_summary_shape(summary_shape: str | None):
 
 
 def read_points(csv_file: str):
-    state = {}
-
-    def _done(points):
-        state["points"] = points
-
-    CSVUtil.readGesture(csv_file, _done)
-    points = state.get("points")
-    if not points:
-        raise ValueError("No points parsed from CSV file: %s" % csv_file)
-    return points
-
-
-def read_gesture_points(file_path: str):
-    suffix = Path(file_path).suffix.lower()
-    state = {}
-
-    def _done(points):
-        state["points"] = points
-
-    if suffix == ".csv":
-        CSVUtil.readGesture(file_path, _done)
-    elif suffix == ".json":
-        JSONUtil.readGesture(file_path, _done)
-    else:
-        raise ValueError(
-            "Invalid input file format (%s). Supported formats: json, csv." % suffix
-        )
-
-    points = state.get("points")
-    if not points:
-        raise ValueError("No points parsed from gesture file: %s" % file_path)
-    return points
+    return read_csv_points(csv_file)
 
 
 def load_csv_entries(input_path: str | Path) -> List[Tuple[str, str, list]]:

@@ -8,10 +8,9 @@ from relacc.gestures.gesture import Gesture
 from relacc.gestures.ptaligntype import PtAlignType
 from relacc.gestures.summarygesture import SummaryGesture
 from relacc.metrics import METRIC_NAMES, compute_metrics
-from relacc.utils.math import MathUtil
+from . import pair_evidence as PairEvidence
 from ._common import (
     SUMMARY_SHAPES,
-    compute_pair_metrics_from_points,
     effective_dtw_window,
     format_csv_rows,
     list_csv_files,
@@ -66,12 +65,7 @@ def _normalize_mode(comparison_mode: str | None):
 
 
 def _rounded_metric_values(values: Dict[str, float], round_precision: int | None):
-    if round_precision is None:
-        return values
-    return {
-        name: MathUtil.roundTo(value, round_precision)
-        for name, value in values.items()
-    }
+    return PairEvidence.rounded_metric_values(values, round_precision)
 
 
 def _top_level_filename_key(relative_csv_path: str) -> str:
@@ -196,19 +190,30 @@ def compare_pair(
     )
 
     selected_metric_names = tuple(metric_names or METRIC_NAMES)
-    raw_metrics = compute_pair_metrics_from_points(
-        reference_points,
-        candidate_points,
-        pair_label,
-        effective_rate,
-        alignment_type=alignment_type,
-        summary_shape=summary_shape,
-        popular_shape=popular_shape,
-        round_precision=None,
-        metric_names=selected_metric_names,
-        dtw_window=selected_dtw_window,
-        exact_dtw=exact_dtw,
+    evidence = PairEvidence.compute_directional_pair_evidence(
+        PairEvidence.PairEndpoint(
+            key=pair.key,
+            path=pair.reference_file,
+            points=reference_points,
+        ),
+        PairEvidence.PairEndpoint(
+            key=pair.key,
+            path=pair.candidate_file,
+            points=candidate_points,
+        ),
+        PairEvidence.PairMetricOptions(
+            label=pair_label,
+            effective_rate=effective_rate,
+            alignment_type=alignment_type,
+            summary_shape=summary_shape,
+            popular_shape=popular_shape,
+            metric_names=selected_metric_names,
+            dtw_window=selected_dtw_window,
+            exact_dtw=exact_dtw,
+        ),
+        direction=None,
     )
+    raw_metrics = evidence.values
     metrics = _rounded_metric_values(raw_metrics, round_precision)
 
     row = {
@@ -226,7 +231,7 @@ def compare_pair(
         "dtwWindow": selected_dtw_window,
     }
     row.update(metrics)
-    raw_metric_outputs = [
+    raw_metric_outputs = PairEvidence.metric_output_rows(
         {
             "schemaVersion": 1,
             "recordType": "rawMetricOutput",
@@ -237,8 +242,6 @@ def compare_pair(
             "candidateFile": pair.candidate_file,
             "mode": DIRECT_MODE,
             "referenceCount": 1,
-            "metric": name,
-            "value": value,
             "rate": effective_rate,
             "requestedRate": rate,
             "alignment": alignment_type,
@@ -247,9 +250,9 @@ def compare_pair(
             "popular": bool(popular_shape),
             "dtwWindow": selected_dtw_window,
             "exactDtw": bool(exact_dtw),
-        }
-        for name, value in raw_metrics.items()
-    ]
+        },
+        evidence,
+    )
     if return_raw:
         return row, raw_metric_outputs
     return row

@@ -143,7 +143,11 @@ def test_metric_samples_for_class_include_candidates_for_auto_rate_and_generate_
         return _metric_dict(next(metric_values))
 
     monkeypatch.setattr(Distribution, "sampling_rate_for_sets", fake_sampling_rate_for_sets)
-    monkeypatch.setattr(Distribution, "compute_pair_metrics_from_points", fake_compute_pair_metrics)
+    monkeypatch.setattr(
+        Distribution.PairEvidence,
+        "compute_pair_metrics_from_points",
+        fake_compute_pair_metrics,
+    )
 
     (
         samples,

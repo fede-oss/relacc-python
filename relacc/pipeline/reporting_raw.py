@@ -6,10 +6,9 @@ from typing import Dict, List, Sequence
 
 from relacc.gestures.ptaligntype import PtAlignType
 from relacc.metrics import METRIC_NAMES
-from relacc.utils.math import MathUtil
 
+from . import pair_evidence as PairEvidence
 from ._common import (
-    compute_pair_metrics_from_points,
     csv_escape,
     effective_dtw_window,
     normalize_summary_shape,
@@ -82,12 +81,7 @@ def _raw_pair_key(
 
 
 def _rounded_metric_values(values: Dict[str, float], round_precision: int | None):
-    if round_precision is None:
-        return values
-    return {
-        metric_name: MathUtil.roundTo(value, round_precision)
-        for metric_name, value in values.items()
-    }
+    return PairEvidence.rounded_metric_values(values, round_precision)
 
 
 def _raw_metric_rows(
@@ -187,33 +181,31 @@ def build_raw_comparison_tables(
             exact_dtw,
         )
         effective_dtw_windows.add(selected_dtw_window)
+        pair_options = PairEvidence.PairMetricOptions(
+            label=group.class_key,
+            effective_rate=effective_rate,
+            alignment_type=alignment_type,
+            summary_shape=normalized_summary,
+            popular_shape=popular_shape,
+            metric_names=selected_metric_names,
+            dtw_window=selected_dtw_window,
+            exact_dtw=exact_dtw,
+        )
 
         for left_entry, right_entry in combinations(group.reference_entries, 2):
-            for direction, reference_entry, candidate_entry in [
-                ("forward", left_entry, right_entry),
-                ("backward", right_entry, left_entry),
-            ]:
-                values = compute_pair_metrics_from_points(
-                    reference_entry.points,
-                    candidate_entry.points,
-                    group.class_key,
-                    effective_rate,
-                    alignment_type=alignment_type,
-                    summary_shape=normalized_summary,
-                    popular_shape=popular_shape,
-                    round_precision=None,
-                    metric_names=selected_metric_names,
-                    dtw_window=selected_dtw_window,
-                    exact_dtw=exact_dtw,
-                )
+            for evidence in PairEvidence.directed_pair_evidences(
+                PairEvidence.endpoint_for(left_entry),
+                PairEvidence.endpoint_for(right_entry),
+                pair_options,
+            ):
                 baseline_rows.extend(
                     _raw_metric_rows(
                         group,
                         BASELINE_PAIR_TYPE,
-                        direction,
-                        reference_entry,
-                        candidate_entry,
-                        _rounded_metric_values(values, round_precision),
+                        evidence.direction,
+                        evidence.left,
+                        evidence.right,
+                        _rounded_metric_values(evidence.values, round_precision),
                         effective_rate,
                         alignment_type,
                         normalized_summary,
@@ -229,27 +221,19 @@ def build_raw_comparison_tables(
 
         for reference_entry in group.reference_entries:
             for candidate_entry in group.candidate_entries:
-                values = compute_pair_metrics_from_points(
-                    reference_entry.points,
-                    candidate_entry.points,
-                    group.class_key,
-                    effective_rate,
-                    alignment_type=alignment_type,
-                    summary_shape=normalized_summary,
-                    popular_shape=popular_shape,
-                    round_precision=None,
-                    metric_names=selected_metric_names,
-                    dtw_window=selected_dtw_window,
-                    exact_dtw=exact_dtw,
+                evidence = PairEvidence.compute_directional_pair_evidence(
+                    PairEvidence.endpoint_for(reference_entry),
+                    PairEvidence.endpoint_for(candidate_entry),
+                    pair_options,
                 )
                 candidate_rows.extend(
                     _raw_metric_rows(
                         group,
                         CANDIDATE_PAIR_TYPE,
-                        "reference-to-candidate",
-                        reference_entry,
-                        candidate_entry,
-                        _rounded_metric_values(values, round_precision),
+                        evidence.direction,
+                        evidence.left,
+                        evidence.right,
+                        _rounded_metric_values(evidence.values, round_precision),
                         effective_rate,
                         alignment_type,
                         normalized_summary,

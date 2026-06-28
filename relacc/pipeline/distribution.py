@@ -20,7 +20,6 @@ from relacc.metrics import METRIC_NAMES
 from relacc.utils.math import MathUtil
 
 from ._common import (
-    compute_pair_metrics_from_points,
     csv_escape,
     effective_dtw_window,
     infer_label_from_filename,
@@ -28,6 +27,7 @@ from ._common import (
     normalize_summary_shape,
     sampling_rate_for_sets,
 )
+from . import pair_evidence as PairEvidence
 from .dataset_discovery import (
     GROUP_BY_FILENAME_LABEL,
     GROUP_BY_MODES,
@@ -66,9 +66,9 @@ REMOVED_INFERENTIAL_FIELDS: Tuple[str, ...] = (
     "normalityPValue",
     "ksPValue",
 )
-WITHIN_REFERENCE_GROUP = "withinReference"
-WITHIN_COMPARISON_GROUP = "withinComparison"
-BETWEEN_GROUPS = "betweenGroups"
+WITHIN_REFERENCE_GROUP = PairEvidence.WITHIN_REFERENCE_SAMPLE_KIND
+WITHIN_COMPARISON_GROUP = PairEvidence.WITHIN_COMPARISON_SAMPLE_KIND
+BETWEEN_GROUPS = PairEvidence.BETWEEN_GROUPS_SAMPLE_KIND
 COMPARISON_GROUP_TYPES: Tuple[str, str, str] = (
     WITHIN_REFERENCE_GROUP,
     WITHIN_COMPARISON_GROUP,
@@ -423,151 +423,71 @@ def _metric_samples_for_class(
         for group_type in COMPARISON_GROUP_TYPES
     }
     raw_metric_outputs = []
+    pair_options = PairEvidence.PairMetricOptions(
+        label=spec.class_key,
+        effective_rate=effective_rate,
+        alignment_type=alignment_type,
+        summary_shape=summary_shape,
+        popular_shape=popular_shape,
+        metric_names=METRIC_NAMES,
+        dtw_window=selected_dtw_window,
+        exact_dtw=exact_dtw,
+    )
+    raw_base_fields = {
+        "schemaVersion": 1,
+        "recordType": "rawMetricOutput",
+        "comparisonMode": DISTRIBUTION_MODE,
+        "classKey": spec.class_key,
+        "rate": effective_rate,
+        "requestedRate": rate,
+        "alignment": alignment_type,
+        "alignmentName": PtAlignType.name(alignment_type),
+        "summary": summary_shape,
+        "popular": bool(popular_shape),
+        "dtwWindow": selected_dtw_window,
+        "exactDtw": bool(exact_dtw),
+    }
 
     for left_entry, right_entry in _unordered_pairs(spec.reference_entries):
-        forward_values = compute_pair_metrics_from_points(
-            left_entry.points,
-            right_entry.points,
-            spec.class_key,
-            effective_rate,
-            alignment_type=alignment_type,
-            summary_shape=summary_shape,
-            popular_shape=popular_shape,
-            dtw_window=selected_dtw_window,
-            exact_dtw=exact_dtw,
-        )
-        backward_values = compute_pair_metrics_from_points(
-            right_entry.points,
-            left_entry.points,
-            spec.class_key,
-            effective_rate,
-            alignment_type=alignment_type,
-            summary_shape=summary_shape,
-            popular_shape=popular_shape,
-            dtw_window=selected_dtw_window,
-            exact_dtw=exact_dtw,
+        evidence = PairEvidence.compute_bidirectional_pair_evidence(
+            PairEvidence.endpoint_for(left_entry),
+            PairEvidence.endpoint_for(right_entry),
+            pair_options,
         )
         for metric_name in METRIC_NAMES:
-            value = (forward_values[metric_name] + backward_values[metric_name]) / 2.0
+            value = evidence.values[metric_name]
             samples[WITHIN_REFERENCE_GROUP][metric_name].append(value)
-            raw_metric_outputs.append(
-                {
-                    "schemaVersion": 1,
-                    "recordType": "rawMetricOutput",
-                    "comparisonMode": DISTRIBUTION_MODE,
-                    "sampleKind": WITHIN_REFERENCE_GROUP,
-                    "classKey": spec.class_key,
-                    "leftReferenceKey": left_entry.key,
-                    "leftReferenceFile": left_entry.path,
-                    "rightReferenceKey": right_entry.key,
-                    "rightReferenceFile": right_entry.path,
-                    "metric": metric_name,
-                    "value": value,
-                    "forwardValue": forward_values[metric_name],
-                    "backwardValue": backward_values[metric_name],
-                    "rate": effective_rate,
-                    "requestedRate": rate,
-                    "alignment": alignment_type,
-                    "alignmentName": PtAlignType.name(alignment_type),
-                    "summary": summary_shape,
-                    "popular": bool(popular_shape),
-                    "dtwWindow": selected_dtw_window,
-                    "exactDtw": bool(exact_dtw),
-                }
-            )
+        raw_metric_outputs.extend(
+            PairEvidence.distribution_within_reference_rows(evidence, raw_base_fields)
+        )
 
     for left_entry, right_entry in _unordered_pairs(spec.candidate_entries):
-        forward_values = compute_pair_metrics_from_points(
-            left_entry.points,
-            right_entry.points,
-            spec.class_key,
-            effective_rate,
-            alignment_type=alignment_type,
-            summary_shape=summary_shape,
-            popular_shape=popular_shape,
-            dtw_window=selected_dtw_window,
-            exact_dtw=exact_dtw,
-        )
-        backward_values = compute_pair_metrics_from_points(
-            right_entry.points,
-            left_entry.points,
-            spec.class_key,
-            effective_rate,
-            alignment_type=alignment_type,
-            summary_shape=summary_shape,
-            popular_shape=popular_shape,
-            dtw_window=selected_dtw_window,
-            exact_dtw=exact_dtw,
+        evidence = PairEvidence.compute_bidirectional_pair_evidence(
+            PairEvidence.endpoint_for(left_entry),
+            PairEvidence.endpoint_for(right_entry),
+            pair_options,
         )
         for metric_name in METRIC_NAMES:
-            value = (forward_values[metric_name] + backward_values[metric_name]) / 2.0
+            value = evidence.values[metric_name]
             samples[WITHIN_COMPARISON_GROUP][metric_name].append(value)
-            raw_metric_outputs.append(
-                {
-                    "schemaVersion": 1,
-                    "recordType": "rawMetricOutput",
-                    "comparisonMode": DISTRIBUTION_MODE,
-                    "sampleKind": WITHIN_COMPARISON_GROUP,
-                    "classKey": spec.class_key,
-                    "leftComparisonKey": left_entry.key,
-                    "leftComparisonFile": left_entry.path,
-                    "rightComparisonKey": right_entry.key,
-                    "rightComparisonFile": right_entry.path,
-                    "metric": metric_name,
-                    "value": value,
-                    "forwardValue": forward_values[metric_name],
-                    "backwardValue": backward_values[metric_name],
-                    "rate": effective_rate,
-                    "requestedRate": rate,
-                    "alignment": alignment_type,
-                    "alignmentName": PtAlignType.name(alignment_type),
-                    "summary": summary_shape,
-                    "popular": bool(popular_shape),
-                    "dtwWindow": selected_dtw_window,
-                    "exactDtw": bool(exact_dtw),
-                }
-            )
+        raw_metric_outputs.extend(
+            PairEvidence.distribution_within_comparison_rows(evidence, raw_base_fields)
+        )
 
     for reference_entry, candidate_entry in _between_group_pairs(
         spec.reference_entries,
         spec.candidate_entries,
     ):
-        values = compute_pair_metrics_from_points(
-            reference_entry.points,
-            candidate_entry.points,
-            spec.class_key,
-            effective_rate,
-            alignment_type=alignment_type,
-            summary_shape=summary_shape,
-            popular_shape=popular_shape,
-            dtw_window=selected_dtw_window,
-            exact_dtw=exact_dtw,
+        evidence = PairEvidence.compute_directional_pair_evidence(
+            PairEvidence.endpoint_for(reference_entry),
+            PairEvidence.endpoint_for(candidate_entry),
+            pair_options,
         )
         for metric_name in METRIC_NAMES:
-            samples[BETWEEN_GROUPS][metric_name].append(values[metric_name])
-            raw_metric_outputs.append(
-                {
-                    "schemaVersion": 1,
-                    "recordType": "rawMetricOutput",
-                    "comparisonMode": DISTRIBUTION_MODE,
-                    "sampleKind": BETWEEN_GROUPS,
-                    "classKey": spec.class_key,
-                    "referenceKey": reference_entry.key,
-                    "referenceFile": reference_entry.path,
-                    "comparisonKey": candidate_entry.key,
-                    "comparisonFile": candidate_entry.path,
-                    "metric": metric_name,
-                    "value": values[metric_name],
-                    "rate": effective_rate,
-                    "requestedRate": rate,
-                    "alignment": alignment_type,
-                    "alignmentName": PtAlignType.name(alignment_type),
-                    "summary": summary_shape,
-                    "popular": bool(popular_shape),
-                    "dtwWindow": selected_dtw_window,
-                    "exactDtw": bool(exact_dtw),
-                }
-            )
+            samples[BETWEEN_GROUPS][metric_name].append(evidence.values[metric_name])
+        raw_metric_outputs.extend(
+            PairEvidence.distribution_between_groups_rows(evidence, raw_base_fields)
+        )
 
     if return_raw:
         return samples, raw_metric_outputs, effective_rate, selected_dtw_window

@@ -18,11 +18,11 @@ import matplotlib.pyplot as plt
 
 from relacc.geom.point import Point
 from relacc.geom.pointset import PointSet
+from relacc.gesture_input import read_csv_points
 from relacc.gestures.gesture import Gesture
 from relacc.gestures.ptaligntype import PtAlignType
 from relacc.gestures.summarygesture import SummaryGesture
 from relacc.pipeline._common import sampling_rate_for_sets
-from relacc.utils.csv import CSVUtil
 
 
 @dataclass(frozen=True)
@@ -49,13 +49,7 @@ def _parse_color(color):
 
 
 def _read_points(csv_file: str):
-    state = {}
-
-    def _done(points):
-        state["points"] = points
-
-    CSVUtil.readGesture(csv_file, _done)
-    return state.get("points") or []
+    return read_csv_points(csv_file, require_points=False)
 
 
 def _draw_gesture(ax, points, canvas_size, line_width, line_color, alpha=1.0):

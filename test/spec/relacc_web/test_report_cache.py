@@ -76,6 +76,26 @@ def _sample_report(tmp_path):
     return root
 
 
+def _load_report(root):
+    return report_cache.ReportCache(
+        id="test",
+        root=root,
+        combined=root / "combined",
+        manifest=json.loads((root / "manifest.json").read_text(encoding="utf-8")),
+        run=json.loads((root / "run.json").read_text(encoding="utf-8")),
+    )
+
+
+def _set_output_dir(root, output_dir):
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    manifest["runs"][0]["classes"][0]["outputDir"] = output_dir
+    (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def _class_dir(report):
+    return report_cache._class_dir(report, "DHG", "1dollar", "root", "arrow")
+
+
 def test_report_cache_discovers_and_builds_chart_payloads(tmp_path, monkeypatch):
     root = _sample_report(tmp_path)
     monkeypatch.setattr(report_cache, "PROJECT_REPORT_ROOT", tmp_path)
@@ -91,3 +111,105 @@ def test_report_cache_discovers_and_builds_chart_payloads(tmp_path, monkeypatch)
 
     assert ranking["rows"][0]["source"] == "DHG"
     assert scatter["points"][0]["generatedMedian"] == 1.5
+
+
+def test_manifest_output_dir_rejects_absolute_path_outside_report(tmp_path):
+    root = _sample_report(tmp_path)
+    outside_dir = tmp_path / "outside-absolute"
+    outside_dir.mkdir()
+    _set_output_dir(root, str(outside_dir))
+
+    assert _class_dir(_load_report(root)) is None
+
+
+def test_manifest_output_dir_rejects_relative_traversal(tmp_path):
+    root = _sample_report(tmp_path)
+    (tmp_path / "outside").mkdir()
+    _set_output_dir(root, "../outside")
+
+    assert _class_dir(_load_report(root)) is None
+
+
+def test_manifest_output_dir_allows_absolute_path_inside_report(tmp_path):
+    root = _sample_report(tmp_path)
+    class_dir = root / "DHG" / "1dollar" / "classes" / "arrow"
+    class_dir.mkdir(parents=True)
+    _set_output_dir(root, str(class_dir))
+
+    assert _class_dir(_load_report(root)) == class_dir.resolve()
+
+
+def test_overlay_omits_absolute_sample_files_outside_allowed_roots(tmp_path, monkeypatch):
+    root = _sample_report(tmp_path)
+    class_dir = root / "DHG" / "1dollar" / "classes" / "arrow"
+    class_dir.mkdir(parents=True)
+    inside_file = class_dir / "inside.csv"
+    outside_dir = tmp_path.parent / f"{tmp_path.name}-overlay-outside"
+    outside_dir.mkdir()
+    outside_file = outside_dir / "outside.csv"
+    inside_file.write_text("x,y\n0,0\n", encoding="utf-8")
+    outside_file.write_text("x,y\n1,1\n", encoding="utf-8")
+    _write_csv(class_dir / "baseline.csv", [{"sampleFile": str(outside_file)}, {"sampleFile": str(inside_file)}])
+    _write_csv(class_dir / "pairwise.csv", [{"candidateFile": str(outside_file)}])
+    monkeypatch.delenv("RELACC_OVERLAY_FILE_ROOTS", raising=False)
+    captured = {}
+
+    def capture_overlay(groups, **kwargs):
+        captured["groups"] = groups
+        return "<svg></svg>"
+
+    monkeypatch.setattr(report_cache, "render_overlay_svg", capture_overlay)
+
+    svg = report_cache.report_overlay_svg(
+        _load_report(root),
+        "DHG",
+        "1dollar",
+        "root",
+        "arrow",
+        None,
+        10,
+        None,
+        "#000",
+        "#111",
+    )
+
+    assert svg == "<svg></svg>"
+    assert captured["groups"][0].files == [str(inside_file.resolve())]
+    assert captured["groups"][1].files == []
+
+
+def test_overlay_allows_absolute_sample_files_under_env_roots(tmp_path, monkeypatch):
+    root = _sample_report(tmp_path)
+    class_dir = root / "DHG" / "1dollar" / "classes" / "arrow"
+    class_dir.mkdir(parents=True)
+    outside_dir = tmp_path.parent / f"{tmp_path.name}-overlay-allowed"
+    outside_dir.mkdir()
+    outside_file = outside_dir / "outside.csv"
+    outside_file.write_text("x,y\n1,1\n", encoding="utf-8")
+    _write_csv(class_dir / "baseline.csv", [{"sampleFile": str(outside_file)}])
+    _write_csv(class_dir / "pairwise.csv", [{"candidateFile": str(outside_file)}])
+    monkeypatch.setenv("RELACC_OVERLAY_FILE_ROOTS", str(outside_dir))
+    captured = {}
+
+    def capture_overlay(groups, **kwargs):
+        captured["groups"] = groups
+        return "<svg></svg>"
+
+    monkeypatch.setattr(report_cache, "render_overlay_svg", capture_overlay)
+
+    svg = report_cache.report_overlay_svg(
+        _load_report(root),
+        "DHG",
+        "1dollar",
+        "root",
+        "arrow",
+        None,
+        10,
+        None,
+        "#000",
+        "#111",
+    )
+
+    assert svg == "<svg></svg>"
+    assert captured["groups"][0].files == [str(outside_file.resolve())]
+    assert captured["groups"][1].files == [str(outside_file.resolve())]
