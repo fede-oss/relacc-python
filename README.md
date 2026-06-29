@@ -63,6 +63,7 @@ The metrics cover:
 | `wddtwDistance` | Weighted derivative DTW |
 
 Lower values always mean closer to the reference. The movement-feature metrics compute the feature on the sample and on the summary/reference, then report the absolute difference; `curvature` reports a Wasserstein distance between local curvature distributions. Passing a single CSV produces all zeros (reference = the file itself).
+
 ---
 
 ## The Summary Gesture (`-m`)
