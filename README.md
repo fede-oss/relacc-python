@@ -11,6 +11,8 @@ This repository contains a Python port of the Gesture Relative Accuracy Toolkit 
 ## Installation
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 python3 -m pip install -e .
 ```
 
@@ -18,6 +20,10 @@ If your system Python is marked as "externally managed" (common on newer Debian/
 
 ```bash
 python3 -m pip install --break-system-packages -e .
+```
+Install the optional web dependencies when needed:
+```bash
+python3 -m pip install -e '.[web]'
 ```
 
 ## One-vs-Many Evaluation
@@ -405,6 +411,21 @@ total variation distance, and KS tests.
 
 - Legacy entry points: `python3 main.py`, `python3 main-canvas.py`, `python3 main-pairwise.py`, `python3 main-distribution.py`.
 
+## Web workbench
+
+The workbench can evaluate zipped gesture datasets or explore existing local report folders. It provides metric filtering, generator rankings, heatmaps, pairwise and distribution charts, raw-value histograms, result tables, gesture overlays, and JSON/SVG exports.
+
+Install the web dependencies, then start the application:
+
+```bash
+python3 -m pip install -e '.[web]'
+relacc-web
+```
+
+Open <http://127.0.0.1:8765>. Upload one reference ZIP and one or more named comparison ZIPs to run an evaluation, or select a local report and click Load Cache. Jobs and uploaded data are held in process memory.
+
+Set `RELACC_REPORT_ROOTS` to an OS-path-separated list of directories containing evaluation folders.
+
 ## Add a new metric
 
 There are two metric families:
@@ -440,12 +461,10 @@ python3 -m pip install -e .
 python3 -m pytest
 ```
 
-To generate a broad coverage diagnostic:
+To include a coverage report:
 
 ```bash
-COVERAGE_FILE=/tmp/relacc.coverage PYTHONDONTWRITEBYTECODE=1 python3 -m coverage run -m pytest -q -p no:cacheprovider
-COVERAGE_FILE=/tmp/relacc.coverage python3 -m coverage report --show-missing
-```
+python3 -m pytest --cov```
 
 
 ## Gestures CSV format
