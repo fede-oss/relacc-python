@@ -264,6 +264,9 @@ Key flags:
 ### `relacc-distribution` — class-aware distribution comparison
 
 `relacc-distribution` compares **metric distributions** instead of individual pairs.
+It uses `descriptive-pair-distances`: pair distances are summarized
+descriptively. Because gesture files, rather than the overlapping pairs made
+from them, are independent units.
 
 Workflow:
 
@@ -313,7 +316,6 @@ Each summary includes these fields:
 | `q05`, `q25`, `q75`, `q95` | Quantiles for lower/upper tails and interquartile range |
 | `skewness` | Whether the distribution leans toward unusually high or low values |
 | `kurtosis` | Tail heaviness/outlier-proneness compared with a normal-like shape |
-| `normalityPValue` | Lightweight normality diagnostic when there are at least 8 values; blank/NaN for tiny or constant samples |
 | `n` | Number of finite values used in the summary |
 
 In CSV output these fields are prefixed with `withinReference`,
@@ -370,7 +372,6 @@ Current distribution metrics:
 - `wassersteinDistanceP2`: symmetric Wasserstein-2 distance between scalar empirical distributions
 - `energyDistance`: symmetric energy distance
 - `ksStatistic`: symmetric Kolmogorov-Smirnov two-sample statistic
-- `ksPValue`: Kolmogorov-Smirnov two-sample test p-value
 - `klDivergenceReferenceToCandidate`: asymmetric binned KL divergence from the reference distribution to the comparison distribution
 - `klDivergenceCandidateToReference`: asymmetric binned KL divergence from the comparison distribution to the reference distribution
 - `jeffreysDivergence`: symmetric KL-family divergence formed by summing both KL directions

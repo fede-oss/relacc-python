@@ -80,7 +80,7 @@ def _write_readme(path: Path, title: str, extra_lines: Sequence[str] = ()) -> No
         "Column notes:",
         f"- variant is '{DEFAULT_VARIANT_LABEL}' when files are directly under a generator/dataset folder, otherwise it is the source subfolder such as syntTO or recoTO.",
         "- summary records the summary strategy used for metric computation, for example medoid or kmedoid.",
-        "- Empty skewness/kurtosis/normality cells mean there were not enough finite samples: skewness needs at least 3, kurtosis at least 4, and normality p-values at least 8 non-constant values.",
+        "- Empty skewness/kurtosis cells mean there were not enough finite samples: skewness needs at least 3 values, and both statistics require non-constant values.",
         "- Empty normalizedWassersteinDistance and SD ratio cells usually mean the reference standard deviation was 0 or unavailable.",
         "- inf in KL-family metrics means one empirical distribution assigned probability to a bin where the other distribution had zero probability; Jensen-Shannon divergence should remain finite.",
     ]
@@ -252,7 +252,9 @@ def write_combined_report_exports(
         [
             "These files concatenate rows across all completed source/dataset/variant runs.",
             (
-                "Distribution outputs use descriptive-pair-distances mode: "
+                "Distribution outputs use descriptive-pair-distances statistical mode; "
+                "this is the fixed statistical contract, not a selectable alternative "
+                "to the distribution comparison workflow: "
                 "independentUnit=gesture-file, pairValuesIndependent=false, "
                 f"statisticsSchemaVersion={STATISTICS_SCHEMA_VERSION}, "
                 "removedInferentialFields="

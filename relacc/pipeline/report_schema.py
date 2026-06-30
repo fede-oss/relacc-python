@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import json
 from typing import Dict
 
 from relacc.distribution_metrics import DISTRIBUTION_METRIC_NAMES
 from relacc.metrics import METRIC_NAMES
 
 
+# Pair-derived values share gesture-file inputs.
 STATISTICAL_MODE = "descriptive-pair-distances"
 INDEPENDENT_UNIT = "gesture-file"
 PAIR_VALUES_INDEPENDENT = False
@@ -81,11 +81,6 @@ STATS_COLUMNS = (
 )
 
 DISTRIBUTION_COLUMNS = (
-    "statisticalMode",
-    "independentUnit",
-    "pairValuesIndependent",
-    "statisticsSchemaVersion",
-    "removedInferentialFields",
     "runId",
     "source",
     "dataset",
@@ -212,17 +207,4 @@ def statistical_contract_fields() -> Dict[str, object]:
         "pairValuesIndependent": PAIR_VALUES_INDEPENDENT,
         "statisticsSchemaVersion": STATISTICS_SCHEMA_VERSION,
         "removedInferentialFields": list(REMOVED_INFERENTIAL_FIELDS),
-    }
-
-
-def statistical_contract_csv_fields() -> Dict[str, object]:
-    return {
-        "statisticalMode": STATISTICAL_MODE,
-        "independentUnit": INDEPENDENT_UNIT,
-        "pairValuesIndependent": PAIR_VALUES_INDEPENDENT,
-        "statisticsSchemaVersion": STATISTICS_SCHEMA_VERSION,
-        "removedInferentialFields": json.dumps(
-            list(REMOVED_INFERENTIAL_FIELDS),
-            separators=(",", ":"),
-        ),
     }

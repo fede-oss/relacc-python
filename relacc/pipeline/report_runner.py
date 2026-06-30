@@ -34,7 +34,6 @@ from relacc.pipeline.report_schema import (
     DISTRIBUTION_COLUMNS,
     PAIRWISE_COLUMNS,
     STATS_COLUMNS,
-    statistical_contract_csv_fields,
     statistical_contract_fields,
 )
 from relacc.pipeline.report_stats import (
@@ -106,10 +105,6 @@ def _format_duration(seconds: float) -> str:
 
 def _statistical_contract_fields() -> Dict[str, object]:
     return statistical_contract_fields()
-
-
-def _statistical_contract_csv_fields() -> Dict[str, object]:
-    return statistical_contract_csv_fields()
 
 
 class ProgressReporter:

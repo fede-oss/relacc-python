@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-import json
 import statistics
 import warnings
 from dataclasses import dataclass
@@ -56,6 +55,8 @@ SUMMARY_STAT_NAMES: Tuple[str, ...] = (
     "kurtosis",
     "n",
 )
+# This is a fixed statistical contract for the distribution workflow, not a
+# selectable comparison mode. Pair-derived values share gesture-file inputs.
 STATISTICAL_MODE = "descriptive-pair-distances"
 INDEPENDENT_UNIT = "gesture-file"
 PAIR_VALUES_INDEPENDENT = False
@@ -347,15 +348,6 @@ def _statistical_contract_fields() -> Dict[str, object]:
         "statisticsSchemaVersion": STATISTICS_SCHEMA_VERSION,
         "removedInferentialFields": list(REMOVED_INFERENTIAL_FIELDS),
     }
-
-
-def _statistical_contract_csv_fields() -> Dict[str, object]:
-    fields = _statistical_contract_fields()
-    fields["removedInferentialFields"] = json.dumps(
-        fields["removedInferentialFields"],
-        separators=(",", ":"),
-    )
-    return fields
 
 
 def _build_result_entry(
@@ -710,11 +702,6 @@ def _generic_distribution_columns() -> List[str]:
         "scope",
         "classKey",
         "gestureMetric",
-        "statisticalMode",
-        "independentUnit",
-        "pairValuesIndependent",
-        "statisticsSchemaVersion",
-        "removedInferentialFields",
         "referenceGroupCount",
         "comparisonGroupCount",
         "withinReferenceSampleCount",
@@ -743,11 +730,6 @@ def _legacy_distribution_columns() -> List[str]:
         "scope",
         "classKey",
         "gestureMetric",
-        "statisticalMode",
-        "independentUnit",
-        "pairValuesIndependent",
-        "statisticsSchemaVersion",
-        "removedInferentialFields",
         "referenceCount",
         "candidateCount",
         "baselineSampleCount",
@@ -780,7 +762,6 @@ def format_distribution_rows_csv(
         distribution_metrics = row.get("distributionMetrics", {})
         if legacy_column_names:
             flat_row = {
-                **_statistical_contract_csv_fields(),
                 "scope": row.get("scope"),
                 "classKey": row.get("classKey"),
                 "gestureMetric": row.get("gestureMetric"),
@@ -795,7 +776,6 @@ def format_distribution_rows_csv(
             _add_group_stats_to_row(flat_row, "candidate", between_group_stats)
         else:
             flat_row = {
-                **_statistical_contract_csv_fields(),
                 "scope": row.get("scope"),
                 "classKey": row.get("classKey"),
                 "gestureMetric": row.get("gestureMetric"),

@@ -614,15 +614,10 @@ def test_format_distribution_rows_csv_with_escaping_and_overall_row():
     output = Distribution.format_distribution_rows_csv(results)
     lines = output.splitlines()
     columns = lines[0].split(",")
-    assert columns[:8] == [
+    assert columns[:3] == [
         "scope",
         "classKey",
         "gestureMetric",
-        "statisticalMode",
-        "independentUnit",
-        "pairValuesIndependent",
-        "statisticsSchemaVersion",
-        "removedInferentialFields",
     ]
     assert "referenceGroupCount" in columns
     assert "comparisonGroupCount" in columns
@@ -647,13 +642,13 @@ def test_format_distribution_rows_csv_with_escaping_and_overall_row():
     assert '"arrow,fast"' in lines[1]
     parsed_rows = list(csv.DictReader(lines))
     assert parsed_rows[1]["scope"] == "overall"
-    assert parsed_rows[0]["statisticalMode"] == "descriptive-pair-distances"
-    assert parsed_rows[0]["independentUnit"] == "gesture-file"
-    assert parsed_rows[0]["pairValuesIndependent"] == "False"
-    assert parsed_rows[0]["statisticsSchemaVersion"] == "2"
-    assert parsed_rows[0]["removedInferentialFields"] == (
-        '["meanCi95Low","meanCi95High","normalityPValue","ksPValue"]'
-    )
+    assert not {
+        "statisticalMode",
+        "independentUnit",
+        "pairValuesIndependent",
+        "statisticsSchemaVersion",
+        "removedInferentialFields",
+    } & parsed_rows[0].keys()
 
     legacy_output = Distribution.format_distribution_rows_csv(
         results,
