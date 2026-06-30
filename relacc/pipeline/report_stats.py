@@ -14,7 +14,6 @@ from relacc.distribution_metrics import (
 from relacc.metrics import METRIC_NAMES
 from relacc.pipeline.report_schema import (
     DISTRIBUTION_OUTPUT_VALUE_COLUMNS,
-    statistical_contract_csv_fields,
     statistical_contract_fields,
 )
 from relacc.utils.math import MathUtil
@@ -432,7 +431,6 @@ def _lightweight_distribution_rows(
         wasserstein = distribution_metrics.get("wassersteinDistance")
 
         row = {
-            **statistical_contract_csv_fields(),
             "runId": metadata_row.get("runId"),
             "source": metadata_row.get("source"),
             "dataset": metadata_row.get("dataset"),

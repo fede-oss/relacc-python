@@ -110,7 +110,6 @@ from relacc.pipeline.report_schema import (
     STATISTICS_SCHEMA_VERSION,
     STATISTICAL_MODE,
     STATS_COLUMNS,
-    statistical_contract_csv_fields,
     statistical_contract_fields,
 )
 from relacc.pipeline.report_stats import (

@@ -134,9 +134,7 @@ def test_run_all_pairwise_reports_characterizes_core_output_contract(tmp_path):
     assert combined_pairwise_rows[0]["mode"] == "reference-summary"
     assert combined_pairwise_rows[0]["pairKey"] == "g01-arrow-fast-t01"
     assert class_pairwise_rows == combined_pairwise_rows
-    assert combined_distribution_rows[0]["statisticalMode"] == (
-        "descriptive-pair-distances"
-    )
+    assert "statisticalMode" not in combined_distribution_rows[0]
     assert combined_distribution_rows[0]["metric"] in PairwiseReports.METRIC_NAMES
     assert aggregate_rows[0]["recordSet"] == "comparison-to-reference-summary"
     assert aggregate_rows[0]["scope"] == "overall"
@@ -214,13 +212,13 @@ def test_run_all_pairwise_reports_writes_generic_distribution_summary(tmp_path):
     assert {row["mode"] for row in within_reference_rows} == {"within-reference"}
     assert {row["mode"] for row in between_group_rows} == {"between-groups"}
     assert len(distribution_rows) == len(baseline_stats_rows)
-    assert distribution_rows[0]["statisticalMode"] == "descriptive-pair-distances"
-    assert distribution_rows[0]["independentUnit"] == "gesture-file"
-    assert distribution_rows[0]["pairValuesIndependent"] == "False"
-    assert distribution_rows[0]["statisticsSchemaVersion"] == "2"
-    assert distribution_rows[0]["removedInferentialFields"] == (
-        '["meanCi95Low","meanCi95High","normalityPValue","ksPValue"]'
-    )
+    assert not {
+        "statisticalMode",
+        "independentUnit",
+        "pairValuesIndependent",
+        "statisticsSchemaVersion",
+        "removedInferentialFields",
+    } & distribution_rows[0].keys()
     assert distribution_rows[0]["wassersteinDistance"] != ""
     assert distribution_rows[0]["jensenShannonDivergence"] != ""
     assert distribution_rows[0]["ksStatistic"] != ""
