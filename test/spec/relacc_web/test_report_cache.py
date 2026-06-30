@@ -60,7 +60,6 @@ def _sample_report(tmp_path):
         "summary": "medoid",
         "metric": "shapeError",
         "n": "2",
-        "finiteN": "2",
         "mean": "1",
         "mdn": "1",
         "sd": "0",

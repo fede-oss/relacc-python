@@ -16,13 +16,11 @@ def test_validate_bounded_stats_rejects_values_outside_min_max():
 def test_distribution_summary_handles_empty_and_non_empty_values():
     empty = ReportStats._distribution_summary([], total_n=3, round_precision=3)
     assert empty["n"] == 3
-    assert empty["finiteN"] == 0
     assert empty["mean"] is None
     assert empty["q50"] is None
 
     summary = ReportStats._distribution_summary([1.0, 2.0, 3.0], 4, 3)
     assert summary["n"] == 4
-    assert summary["finiteN"] == 3
     assert summary["mean"] == 2.0
     assert summary["mdn"] == 2.0
     assert summary["min"] == 1.0
@@ -66,5 +64,4 @@ def test_aggregate_rows_for_record_set_groups_small_record_set():
     assert overall["recordSet"] == "comparison-to-reference-summary"
     assert overall["summary"] == "medoid"
     assert overall["n"] == 2
-    assert overall["finiteN"] == 2
     assert overall["mean"] == 2.0

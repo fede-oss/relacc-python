@@ -107,7 +107,6 @@ def _summary_stats(
             "summary": summary_shape,
             "metric": metric_name,
             "n": len(values),
-            "finiteN": finite_n,
             "mean": rounded(mean),
             "mdn": rounded(mdn),
             "sd": rounded(sd),
@@ -167,7 +166,6 @@ def _aggregate_summary_stats(
                 "summary": summary_shape,
                 "metric": metric_name,
                 "n": len(values),
-                "finiteN": finite_n,
                 "mean": rounded(mean),
                 "mdn": rounded(mdn),
                 "sd": rounded(sd),
@@ -298,7 +296,6 @@ def _distribution_summary(values: Sequence[float], total_n: int, round_precision
     if not finite_values:
         return {
             "n": total_n,
-            "finiteN": 0,
             "mean": None,
             "mdn": None,
             "sd": None,
@@ -319,7 +316,6 @@ def _distribution_summary(values: Sequence[float], total_n: int, round_precision
     sd = statistics.stdev(finite_values) if len(finite_values) > 1 else 0.0
     summary = {
         "n": total_n,
-        "finiteN": len(finite_values),
         "mean": rounded(statistics.fmean(finite_values)),
         "mdn": rounded(statistics.median(finite_values)),
         "sd": rounded(sd),
@@ -361,6 +357,10 @@ def _delta(left: float | None, right: float | None):
     if left is None or right is None:
         return None
     return left - right
+
+
+def _summary_float(stats: Dict[str, object], field_name: str) -> float | None:
+    return _numeric_value(stats.get(field_name))
 
 
 def _lightweight_distribution_rows(
@@ -419,15 +419,15 @@ def _lightweight_distribution_rows(
             if within_reference_values and between_group_values
             else {}
         )
-        within_reference_mean = within_reference_stats.get("mean")
-        within_comparison_mean = within_comparison_stats.get("mean")
-        between_group_mean = between_group_stats.get("mean")
-        within_reference_mdn = within_reference_stats.get("mdn")
-        within_comparison_mdn = within_comparison_stats.get("mdn")
-        between_group_mdn = between_group_stats.get("mdn")
-        within_reference_sd = within_reference_stats.get("sd")
-        within_comparison_sd = within_comparison_stats.get("sd")
-        between_group_sd = between_group_stats.get("sd")
+        within_reference_mean = _summary_float(within_reference_stats, "mean")
+        within_comparison_mean = _summary_float(within_comparison_stats, "mean")
+        between_group_mean = _summary_float(between_group_stats, "mean")
+        within_reference_mdn = _summary_float(within_reference_stats, "mdn")
+        within_comparison_mdn = _summary_float(within_comparison_stats, "mdn")
+        between_group_mdn = _summary_float(between_group_stats, "mdn")
+        within_reference_sd = _summary_float(within_reference_stats, "sd")
+        within_comparison_sd = _summary_float(within_comparison_stats, "sd")
+        between_group_sd = _summary_float(between_group_stats, "sd")
         wasserstein = distribution_metrics.get("wassersteinDistance")
 
         row = {
@@ -439,7 +439,6 @@ def _lightweight_distribution_rows(
             "summary": metadata_row.get("summary"),
             "metric": metric_name,
             "withinReferenceN": within_reference_stats.get("n"),
-            "withinReferenceFiniteN": within_reference_stats.get("finiteN"),
             "withinReferenceMean": within_reference_mean,
             "withinReferenceMdn": within_reference_mdn,
             "withinReferenceSd": within_reference_sd,
@@ -454,7 +453,6 @@ def _lightweight_distribution_rows(
             "withinReferenceSkewness": within_reference_stats.get("skewness"),
             "withinReferenceKurtosis": within_reference_stats.get("kurtosis"),
             "withinComparisonN": within_comparison_stats.get("n"),
-            "withinComparisonFiniteN": within_comparison_stats.get("finiteN"),
             "withinComparisonMean": within_comparison_mean,
             "withinComparisonMdn": within_comparison_mdn,
             "withinComparisonSd": within_comparison_sd,
@@ -469,7 +467,6 @@ def _lightweight_distribution_rows(
             "withinComparisonSkewness": within_comparison_stats.get("skewness"),
             "withinComparisonKurtosis": within_comparison_stats.get("kurtosis"),
             "betweenGroupsN": between_group_stats.get("n"),
-            "betweenGroupsFiniteN": between_group_stats.get("finiteN"),
             "betweenGroupsMean": between_group_mean,
             "betweenGroupsMdn": between_group_mdn,
             "betweenGroupsSd": between_group_sd,
@@ -539,11 +536,8 @@ def _raw_distribution_outputs_from_rows(
             "summary": row.get("summary"),
             "gestureMetric": row.get("metric"),
             "withinReferenceN": row.get("withinReferenceN"),
-            "withinReferenceFiniteN": row.get("withinReferenceFiniteN"),
             "withinComparisonN": row.get("withinComparisonN"),
-            "withinComparisonFiniteN": row.get("withinComparisonFiniteN"),
             "betweenGroupsN": row.get("betweenGroupsN"),
-            "betweenGroupsFiniteN": row.get("betweenGroupsFiniteN"),
         }
         for distribution_metric in DISTRIBUTION_OUTPUT_VALUE_COLUMNS:
             raw_rows.append(

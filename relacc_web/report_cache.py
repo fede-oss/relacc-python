@@ -62,7 +62,7 @@ class ReportCache:
     run: dict[str, Any]
 
 
-def _json_safe(value: Any):
+def _json_safe(value: Any) -> Any:
     if isinstance(value, float) and not math.isfinite(value):
         return None
     if isinstance(value, dict):
@@ -521,7 +521,7 @@ def _ranking_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str, 
         if row.get("metric") not in metrics or not _matches(row, filters, metric=False):
             continue
         score = _distribution_score(row, filters)
-        _weighted_accumulate(grouped, source_label(row), score, _num(row.get("betweenGroupsFiniteN")))
+        _weighted_accumulate(grouped, source_label(row), score, _num(row.get("betweenGroupsN")))
     scores = _weighted_rows(grouped)
     rows = [
         {
@@ -553,7 +553,7 @@ def _heatmap_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str, 
         if row.get("metric") not in metric_set or not _matches(row, filters, metric=False):
             continue
         score = _distribution_score(row, filters)
-        _weighted_accumulate(grouped, (source_label(row), row["metric"]), score, _num(row.get("betweenGroupsFiniteN")))
+        _weighted_accumulate(grouped, (source_label(row), row["metric"]), score, _num(row.get("betweenGroupsN")))
 
     sources = sorted({source for source, _ in grouped})
     raw_values = _weighted_rows(grouped)
@@ -600,7 +600,7 @@ def _scatter_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str, 
         ("metric", "dataset", "classKey", "source"),
     )
     generated_rows = _indexed_candidate_rows(report, "stats", filters, metric_set, ("metric", "dataset", "classKey", "source"))
-    baseline: dict[tuple[str, str], dict[str, float | None]] = {}
+    baseline: dict[tuple[str, str, str], dict[str, float | None]] = {}
     for row in baseline_rows:
         if row.get("metric") != metric or not _matches(row, {**filters, "source": ""}, metric=False):
             continue
@@ -615,7 +615,9 @@ def _scatter_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str, 
             continue
         key = (str(row.get("dataset")), str(row.get("classKey")), str(row.get("metric")))
         human_stats = baseline.get(key)
-        human = human_stats.get("mean") if human_stats else None
+        if human_stats is None:
+            continue
+        human = human_stats.get("mean")
         generated = _num(row.get("mean"))
         if human is None or generated is None:
             continue
@@ -628,9 +630,9 @@ def _scatter_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str, 
                 "metric": row.get("metric"),
                 "humanMean": human,
                 "generatedMean": generated,
-                "humanMedian": human_stats.get("mdn"),
+                "humanMedian": human_stats["mdn"],
                 "generatedMedian": generated_median,
-                "n": _num(row.get("finiteN")) or _num(row.get("n")),
+                "n": _num(row.get("n")),
                 "ratio": None if human == 0 else generated / human,
             }
         )
@@ -656,7 +658,7 @@ def _pairwise_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str,
     for row in baseline_rows:
         if row.get("metric") not in metrics or not _matches(row, {**filters, "source": ""}, metric=False):
             continue
-        _weighted_accumulate(baseline_groups, row["metric"], _num(row.get("mean")), _num(row.get("finiteN")))
+        _weighted_accumulate(baseline_groups, row["metric"], _num(row.get("mean")), _num(row.get("n")))
     baseline_means = _weighted_rows(baseline_groups)
     for row in generated_rows:
         if row.get("metric") not in metrics or not _matches(row, filters, metric=False):
@@ -665,7 +667,7 @@ def _pairwise_payload(report: ReportCache, filters: dict[str, Any]) -> dict[str,
             generated_groups,
             (source_label(row), row["metric"]),
             _num(row.get("mean")),
-            _num(row.get("finiteN")),
+            _num(row.get("n")),
         )
     generated_means = _weighted_rows(generated_groups)
     rows = []
@@ -698,14 +700,14 @@ def _distribution_payload(report: ReportCache, filters: dict[str, Any]) -> dict[
         key = (source_label(row), row["metric"])
         bucket = grouped.setdefault(key, {})
         for field, weight_field in (
-            ("withinReferenceMean", "withinReferenceFiniteN"),
-            ("withinComparisonMean", "withinComparisonFiniteN"),
-            ("betweenGroupsMean", "betweenGroupsFiniteN"),
-            ("withinComparisonToReferenceMeanRatio", "withinComparisonFiniteN"),
-            ("normalizedWassersteinDistance", "betweenGroupsFiniteN"),
-            ("wassersteinDistance", "betweenGroupsFiniteN"),
-            ("energyDistance", "betweenGroupsFiniteN"),
-            ("ksStatistic", "betweenGroupsFiniteN"),
+            ("withinReferenceMean", "withinReferenceN"),
+            ("withinComparisonMean", "withinComparisonN"),
+            ("betweenGroupsMean", "betweenGroupsN"),
+            ("withinComparisonToReferenceMeanRatio", "withinComparisonN"),
+            ("normalizedWassersteinDistance", "betweenGroupsN"),
+            ("wassersteinDistance", "betweenGroupsN"),
+            ("energyDistance", "betweenGroupsN"),
+            ("ksStatistic", "betweenGroupsN"),
         ):
             _weighted_accumulate(bucket, field, _num(row.get(field)), _num(row.get(weight_field)))
     means = {key: _weighted_rows(bucket) for key, bucket in grouped.items()}
