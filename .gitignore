@@ -23,6 +23,7 @@ evaluation-plots-*/
 
 report-output/
 report-output-eval-*/
+report-output-estimate*/
 report-output-16-samples-only/
 relacc_python.egg-info/
 *.md
